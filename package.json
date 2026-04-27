@@ -2,15 +2,20 @@
   "name": "doctorhouse",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["mobile", "api", "MobileDoctorPro"],
+  "workspaces": [
+    "mobile",
+    "api",
+    "MobileDoctorPro"
+  ],
   "scripts": {
-    "api:dev":    "npm run dev      --workspace=api",
-    "api:start":  "npm run start    --workspace=api",
+    "api:dev": "npm run dev      --workspace=api",
+    "api:start": "npm run start    --workspace=api",
+    "db:migrate": "npm run migrate  --workspace=api",
     "mobile:start": "npm run start  --workspace=mobile",
     "mobile:android": "npm run android --workspace=mobile",
-    "pro:start":  "npm run start    --workspace=mobile-doctor-pro",
-    "pro:android":"npm run android  --workspace=mobile-doctor-pro",
-    "docker:up":  "docker compose up -d --build",
+    "pro:start": "npm run start    --workspace=mobile-doctor-pro",
+    "pro:android": "npm run android  --workspace=mobile-doctor-pro",
+    "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f api"
   }
