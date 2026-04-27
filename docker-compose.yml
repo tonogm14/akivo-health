@@ -39,6 +39,7 @@ services:
       DATABASE_URL:        postgresql://dh_user:dh_pass@postgres:5432/doctorhouse
       JWT_SECRET:          ${JWT_SECRET:?JWT_SECRET is required}
       CORS_ORIGIN:         ${CORS_ORIGIN:-https://api.doctorhouse.pe}
+      ADMIN_CORS_ORIGIN:   ${ADMIN_CORS_ORIGIN:-https://admin.doctorhouse.pe}
       API_KEYS:            ${API_KEYS:?API_KEYS is required}
       API_SIGNING_SECRET:  ${API_SIGNING_SECRET:?API_SIGNING_SECRET is required}
       # Culqi

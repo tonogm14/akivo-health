@@ -370,4 +370,11 @@ router.get('/consultations', adminAuth, hasPermission('consultations'), async (r
   catch (err) { res.status(500).json({ error: 'Error.' }); }
 });
 
+// SPA fallback — serve admin/index.html for all unmatched GET routes
+// (covers /admin/inicio, /admin/consultas, /admin/doctores, /admin/aplicaciones, etc.)
+const nodePath = require('path');
+router.get('*', (req, res) => {
+  res.sendFile(nodePath.resolve(__dirname, '../../../web/admin/index.html'));
+});
+
 module.exports = router;

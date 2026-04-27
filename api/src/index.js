@@ -17,8 +17,31 @@ const PORT = process.env.PORT || 3000;
 // ── Trust nginx proxy (so req.ip is the real client IP, not 172.x.x.x)
 app.set('trust proxy', 1);
 
-// ── Public landing page + doctor application form (served as static files)
-// Mounted before HMAC/auth so the browser can load it without API credentials
+// ── Host-based routing & Robots.txt logic
+app.use((req, res, next) => {
+  const host = req.get('host');
+  const adminDomain = process.env.ADMIN_DOMAIN || 'fazzilitoadmin.akivo.com.pe';
+  const mainDomain = process.env.MAIN_DOMAIN || 'akivo.com.pe';
+  const isAdminHost = host === adminDomain;
+
+  // Dynamic robots.txt
+  if (req.url === '/robots.txt') {
+    if (isAdminHost) {
+      return res.type('text/plain').send("User-agent: *\nDisallow: /");
+    } else {
+      return res.type('text/plain').send("User-agent: *\nAllow: /");
+    }
+  }
+
+  // Redirect root on admin subdomain to the dashboard
+  if (isAdminHost && req.path === '/') {
+    return res.redirect('/admin');
+  }
+
+  next();
+});
+
+// ── Shared Static Assets (Landing, Apply, and Admin served relative to web root)
 app.use(express.static(path.join(__dirname, '../../web'), {
   index: 'index.html',
   extensions: ['html'],
@@ -98,7 +121,11 @@ app.use('/apply',
 
 // ── Admin Dashboard API (no HMAC verification, uses JWT)
 app.use('/admin',
-  cors({ origin: '*', methods: ['GET', 'POST', 'PATCH', 'DELETE'], allowedHeaders: ['Content-Type', 'Authorization'] }),
+  cors({
+    origin: process.env.ADMIN_CORS_ORIGIN || 'https://admin.doctorhouse.pe',
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }),
   require('./routes/admin')
 );
 
