@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Doctor House Pro",
+    "slug": "doctor-house-pro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "pe.doctorhouse.pro"
+    },
+    "android": {
+      "package": "pe.doctorhouse.pro"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Doctor House Pro necesita tu ubicación para actualizar tu posición en tiempo real.",
+          "locationWhenInUsePermission": "Doctor House Pro necesita tu ubicación para mostrarla a los pacientes."
+        }
+      ]
+    ]
+  }
+}

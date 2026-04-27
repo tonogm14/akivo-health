@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Doctor House — Para médicos</title>
+<meta name="description" content="Únete a Doctor House y atiende pacientes en su hogar. Horarios flexibles, S/ 85 por visita, cobertura en Lima Metropolitana."/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #FBFCFD;
+    font-family: 'Manrope', -apple-system, system-ui, sans-serif;
+    color: #0B1F33;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  button { cursor: pointer; font-family: inherit; }
+
+  @keyframes dhFloatUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes dhPulseRing {
+    0% { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+
+  /* Range slider styling (dark surface) */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 6px; border-radius: 6px;
+    outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; border: 3px solid #1863E0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; border: 3px solid #1863E0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="src/landing/landing-ui.jsx"></script>
+<script type="text/babel" src="src/landing/landing-sections.jsx"></script>
+<script type="text/babel" src="src/landing/landing-sections-2.jsx"></script>
+
+<script type="text/babel">
+function Landing() {
+  const goApply = () => {
+    window.location.href = '/apply';
+  };
+
+  return (
+    <>
+      <LandingNav onApply={goApply}/>
+      <HeroSection onApply={goApply}/>
+      <HowSection/>
+      <EarningsCalcSection onApply={goApply}/>
+      <BenefitsSection/>
+      <RequirementsSection/>
+      <TestimonialsSection/>
+      <FAQSection/>
+      <FinalCtaSection onApply={goApply}/>
+      <Footer/>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Landing/>);
+</script>
+</body>
+</html>

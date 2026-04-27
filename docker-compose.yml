@@ -1,0 +1,98 @@
+name: doctorhouse
+
+services:
+
+  # ─────────────────────────────────────────────
+  # PostgreSQL 16
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       doctorhouse
+      POSTGRES_USER:     dh_user
+      POSTGRES_PASSWORD: dh_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./api/src/db/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dh_user -d doctorhouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────
+  # Doctor House REST API  (internal only)
+  # ─────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV:            ${NODE_ENV:-development}
+      PORT:                3000
+      DATABASE_URL:        postgresql://dh_user:dh_pass@postgres:5432/doctorhouse
+      JWT_SECRET:          ${JWT_SECRET:?JWT_SECRET is required}
+      CORS_ORIGIN:         ${CORS_ORIGIN:-https://api.doctorhouse.pe}
+      API_KEYS:            ${API_KEYS:?API_KEYS is required}
+      API_SIGNING_SECRET:  ${API_SIGNING_SECRET:?API_SIGNING_SECRET is required}
+      # Culqi
+      CULQI_PUBLIC_KEY:    ${CULQI_PUBLIC_KEY:-}
+      CULQI_SECRET_KEY:    ${CULQI_SECRET_KEY:-}
+      CULQI_BASE_URL:      ${CULQI_BASE_URL:-https://api-sandbox.culqi.com/v2}
+      # Niubiz
+      NIUBIZ_MERCHANT_ID:  ${NIUBIZ_MERCHANT_ID:-}
+      NIUBIZ_USERNAME:     ${NIUBIZ_USERNAME:-}
+      NIUBIZ_PASSWORD:     ${NIUBIZ_PASSWORD:-}
+      NIUBIZ_BASE_URL:     ${NIUBIZ_BASE_URL:-https://apistg.niubiz.com.pe}
+      # PagoEfectivo
+      PAGOEFECTIVO_CLIENT_ID:     ${PAGOEFECTIVO_CLIENT_ID:-}
+      PAGOEFECTIVO_CLIENT_SECRET: ${PAGOEFECTIVO_CLIENT_SECRET:-}
+      PAGOEFECTIVO_SERVICE_ID:    ${PAGOEFECTIVO_SERVICE_ID:-}
+      PAGOEFECTIVO_BASE_URL:      ${PAGOEFECTIVO_BASE_URL:-https://api-stg.pagoefectivo.pe}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./api/src
+          target: /app/src
+
+  # ─────────────────────────────────────────────
+  # Nginx  — sole public entry point
+  # ─────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+
+  # ─────────────────────────────────────────────
+  # pgAdmin 4  (optional tools profile)
+  # ─────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@doctorhouse.pe
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
