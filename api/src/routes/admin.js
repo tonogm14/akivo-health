@@ -516,9 +516,18 @@ router.get('/consultations/:id', adminAuth, hasPermission('consultations'), asyn
 });
 
 // SPA fallback — serve admin/index.html for all unmatched GET routes
-// (covers /admin/inicio, /admin/consultas, /admin/doctores, /admin/aplicaciones, etc.)
 const nodePath = require('path');
+const ADMIN_CSP = [
+  "default-src 'none'",
+  "script-src 'self' https://unpkg.com 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+].join('; ');
+
 router.get('*', (req, res) => {
+  res.setHeader('Content-Security-Policy', ADMIN_CSP);
   res.sendFile(nodePath.resolve(__dirname, '../../../web/admin/index.html'));
 });
 
