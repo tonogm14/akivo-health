@@ -328,6 +328,8 @@ function ConsultationDetail({ token, visitId, onBack, onViewPatient }) {
 
 function ConsultationsView({ token }) {
   const T = useT();
+  const { path, navigate } = useNav();
+  const visitId = path.startsWith('/admin/consultas/') ? path.slice('/admin/consultas/'.length) : null;
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
@@ -336,7 +338,6 @@ function ConsultationsView({ token }) {
   const [filterDateTo, setFilterDateTo]     = useState('');
   const [offset, setOffset]         = useState(0);
   const [hasMore, setHasMore]       = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
   const [patientFilter, setPatientFilter] = useState(null);
   const LIMIT = 50;
 
@@ -363,10 +364,10 @@ function ConsultationsView({ token }) {
   useEffect(() => { setOffset(0); setRows([]); load(true); },
     [filterStatus, filterDateFrom, filterDateTo, patientFilter, token]);
 
-  if (selectedId) return (
-    <ConsultationDetail token={token} visitId={selectedId}
-      onBack={() => setSelectedId(null)}
-      onViewPatient={(uid, name) => { setSelectedId(null); setPatientFilter({ userId:uid, name }); }} />
+  if (visitId) return (
+    <ConsultationDetail token={token} visitId={visitId}
+      onBack={() => navigate('/admin/consultas')}
+      onViewPatient={(uid, name) => { setPatientFilter({ userId:uid, name }); navigate('/admin/consultas'); }} />
   );
 
   const hasFilters = filterStatus || filterDateFrom || filterDateTo;
@@ -456,7 +457,7 @@ function ConsultationsView({ token }) {
                   color:T.inkMuted, fontSize:13 }}>No hay consultas.</td></tr>
               )}
               {rows.map(c => (
-                <HoverRow key={c.id} onClick={() => setSelectedId(c.id)}
+                <HoverRow key={c.id} onClick={() => navigate('/admin/consultas/' + c.id)}
                   style={{ borderBottom:`1px solid ${T.border}`, cursor:'pointer' }}>
                   <td style={{ padding:'12px 14px', fontSize:12, color:T.inkSoft, whiteSpace:'nowrap' }}>
                     {fmtDateShort(c.created_at)}
@@ -489,7 +490,7 @@ function ConsultationsView({ token }) {
                     ) : <span style={{ fontSize:12, color:T.inkMuted }}>—</span>}
                   </td>
                   <td style={{ padding:'12px 14px', textAlign:'right' }}>
-                    <button onClick={e => { e.stopPropagation(); setSelectedId(c.id); }}
+                    <button onClick={e => { e.stopPropagation(); navigate('/admin/consultas/' + c.id); }}
                       style={{ background:T.accentSoft, border:`1px solid ${T.accent}33`,
                         color:T.accent, borderRadius:7, padding:'5px 10px',
                         fontSize:12, cursor:'pointer', fontWeight:700 }}>

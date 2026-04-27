@@ -24,13 +24,15 @@ function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
 
   // Redirect to default view if path not recognised
   useEffect(() => {
-    if (!ROUTES[path]) {
+    const isKnown = ROUTES[path] || path.startsWith('/admin/consultas/');
+    if (!isKnown) {
       navigate(admin.role === 'admin' ? '/admin/inicio' : '/admin/aplicaciones');
     }
   }, [path]);
 
-  const routeInfo = ROUTES[path] || {};
-  const title = routeInfo.title || 'Admin';
+  const routeInfo = ROUTES[path] || ROUTES['/admin/consultas'] || {};
+  const isConsultaDetail = path.startsWith('/admin/consultas/');
+  const title = isConsultaDetail ? 'Detalle de Consulta' : (routeInfo.title || 'Admin');
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: T.bg }}>
@@ -83,7 +85,7 @@ function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
         }}>
           {path === '/admin/inicio' && (admin.is_root || admin.role === 'admin') && <OverviewView token={token} />}
           {path === '/admin/aplicaciones' && <ApplicationsView token={token} />}
-          {path === '/admin/consultas' && (admin.is_root || admin.role === 'admin') && <ConsultationsView token={token} />}
+          {path.startsWith('/admin/consultas') && (admin.is_root || admin.role === 'admin') && <ConsultationsView token={token} />}
           {path === '/admin/doctores' && (admin.is_root || admin.role === 'admin') && <DoctorsView token={token} />}
           {path === '/admin/usuarios' && (admin.is_root || admin.role === 'admin') && <ManagementView token={token} admin={admin} />}
           {path === '/admin/auditoria' && (admin.is_root || admin.role === 'admin') && <LogsView token={token} />}

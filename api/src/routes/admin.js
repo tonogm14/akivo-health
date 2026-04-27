@@ -365,9 +365,154 @@ router.post('/doctors/:id/deactivate', adminAuth, hasPermission('doctors'), asyn
   } catch (err) { res.status(500).json({ error: 'Error.' }); }
 });
 
+/** ── Consultations ──────────────────────────────────────────── */
+
+router.get('/consultations/stats', adminAuth, hasPermission('consultations'), async (req, res) => {
+  const { date_from, date_to, user_id } = req.query;
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (date_from) { params.push(date_from); where += ` AND v.created_at >= $${params.length}::date`; }
+  if (date_to)   { params.push(date_to);   where += ` AND v.created_at <  $${params.length}::date + interval '1 day'`; }
+  if (user_id)   { params.push(user_id);   where += ` AND v.user_id = $${params.length}`; }
+  try {
+    const { rows: [s] } = await pool.query(`
+      SELECT
+        COUNT(*)                                                                         AS total,
+        COUNT(*) FILTER (WHERE v.status IN ('pending','matched','on_way','arrived'))     AS active,
+        COUNT(*) FILTER (WHERE v.status = 'completed')                                  AS completed,
+        COUNT(*) FILTER (WHERE v.status = 'cancelled')                                  AS cancelled,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.pstatus IN ('confirmed','paid')), 0)     AS revenue
+      FROM visits v
+      LEFT JOIN LATERAL (
+        SELECT amount, status AS pstatus FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1
+      ) p ON true
+      ${where}
+    `, params);
+    res.json({
+      total: parseInt(s.total), active: parseInt(s.active),
+      completed: parseInt(s.completed), cancelled: parseInt(s.cancelled),
+      revenue: parseFloat(s.revenue),
+      period: date_from && date_to ? `${date_from} – ${date_to}` :
+              date_from ? `Desde ${date_from}` : date_to ? `Hasta ${date_to}` : 'Todo el tiempo',
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Error.' }); }
+});
+
 router.get('/consultations', adminAuth, hasPermission('consultations'), async (req, res) => {
-  try { const { rows } = await pool.query(`SELECT v.*, u.name as patient_name, d.name as doctor_name FROM visits v LEFT JOIN users u ON v.user_id = u.id LEFT JOIN doctors d ON v.doctor_id = d.id ORDER BY v.created_at DESC LIMIT 50`); res.json(rows); }
-  catch (err) { res.status(500).json({ error: 'Error.' }); }
+  const { status, date_from, date_to, user_id, search, limit = 50, offset = 0 } = req.query;
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (status)    { params.push(status);    where += ` AND v.status = $${params.length}::visit_status`; }
+  if (date_from) { params.push(date_from); where += ` AND v.created_at >= $${params.length}::date`; }
+  if (date_to)   { params.push(date_to);   where += ` AND v.created_at <  $${params.length}::date + interval '1 day'`; }
+  if (user_id)   { params.push(user_id);   where += ` AND v.user_id = $${params.length}`; }
+  if (search) {
+    params.push(`%${search}%`);
+    where += ` AND (u.name ILIKE $${params.length} OR d.name ILIKE $${params.length})`;
+  }
+  try {
+    const cntQ = await pool.query(
+      `SELECT COUNT(*) FROM visits v LEFT JOIN users u ON v.user_id = u.id LEFT JOIN doctors d ON v.doctor_id = d.id ${where}`,
+      params
+    );
+    params.push(parseInt(limit), parseInt(offset));
+    const { rows } = await pool.query(`
+      SELECT
+        v.id, v.status, v.urgency, v.service_type, v.address, v.created_at, v.cancel_reason, v.eta_minutes,
+        COALESCE(vp.name, u.name) AS patient_name,
+        vp.age                    AS patient_age,
+        vp.age_group,
+        u.phone                   AS patient_phone,
+        u.id                      AS user_id,
+        d.id                      AS doctor_id,
+        d.name                    AS doctor_name,
+        d.specialty,
+        d.cmp_license,
+        p.amount, p.tip,
+        p.method                  AS payment_method,
+        p.pstatus                 AS payment_status,
+        r.rating,
+        CASE WHEN cr.consultation_finished_at IS NOT NULL AND cr.consultation_started_at IS NOT NULL
+          THEN ROUND(EXTRACT(EPOCH FROM (cr.consultation_finished_at - cr.consultation_started_at)) / 60)
+          ELSE NULL END           AS duration_minutes
+      FROM visits v
+      LEFT JOIN users u ON v.user_id = u.id
+      LEFT JOIN doctors d ON v.doctor_id = d.id
+      LEFT JOIN LATERAL (SELECT * FROM visit_patients WHERE visit_id = v.id LIMIT 1) vp ON true
+      LEFT JOIN LATERAL (SELECT amount, tip, method, status AS pstatus FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1) p ON true
+      LEFT JOIN reviews r ON r.visit_id = v.id
+      LEFT JOIN consultation_reports cr ON cr.visit_id = v.id
+      ${where}
+      ORDER BY v.created_at DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+    res.json({ rows, total: parseInt(cntQ.rows[0].count), limit: parseInt(limit), offset: parseInt(offset) });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Error.' }); }
+});
+
+router.get('/consultations/:id', adminAuth, hasPermission('consultations'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows: [v] } = await pool.query(`
+      SELECT
+        v.*,
+        COALESCE(vp.name, u.name) AS patient_name,
+        vp.age                    AS patient_age,
+        vp.age_group,
+        vp.medical_flags,
+        vp.notes                  AS patient_notes,
+        u.phone                   AS patient_phone,
+        u.id                      AS user_id,
+        d.name                    AS doctor_name,
+        d.specialty,
+        d.cmp_license,
+        d.phone                   AS doctor_phone,
+        p.amount, p.tip,
+        p.method                  AS payment_method,
+        p.pstatus                 AS payment_status,
+        p.confirmed_at            AS payment_confirmed_at,
+        r.rating,
+        r.tags                    AS review_tags
+      FROM visits v
+      LEFT JOIN users u ON v.user_id = u.id
+      LEFT JOIN doctors d ON v.doctor_id = d.id
+      LEFT JOIN LATERAL (SELECT * FROM visit_patients WHERE visit_id = v.id LIMIT 1) vp ON true
+      LEFT JOIN LATERAL (SELECT amount, tip, method, status AS pstatus, confirmed_at FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1) p ON true
+      LEFT JOIN reviews r ON r.visit_id = v.id
+      WHERE v.id = $1
+    `, [id]);
+    if (!v) return res.status(404).json({ error: 'Not found.' });
+
+    const [symptomRows, [report], prescriptions, events] = await Promise.all([
+      pool.query('SELECT symptom_code FROM visit_symptoms WHERE visit_id = $1', [id])
+        .then(r => r.rows),
+      pool.query(`
+        SELECT *, CASE WHEN consultation_finished_at IS NOT NULL AND consultation_started_at IS NOT NULL
+          THEN ROUND(EXTRACT(EPOCH FROM (consultation_finished_at - consultation_started_at)) / 60)
+          ELSE NULL END AS duration_minutes
+        FROM consultation_reports WHERE visit_id = $1`, [id])
+        .then(r => r.rows),
+      pool.query('SELECT * FROM prescriptions WHERE visit_id = $1 ORDER BY created_at', [id])
+        .then(r => r.rows),
+      pool.query(`
+        SELECT ve.*, COALESCE(u.name, d.name) AS actor_name
+        FROM visit_events ve
+        LEFT JOIN users   u ON ve.actor_type = 'patient' AND ve.actor_id = u.id
+        LEFT JOIN doctors d ON ve.actor_type = 'doctor'  AND ve.actor_id = d.id
+        WHERE ve.visit_id = $1 ORDER BY ve.created_at ASC`, [id])
+        .then(r => r.rows),
+    ]);
+
+    await logAction(req.admin.id, 'view_consultation', 'visit', id);
+    res.json({
+      ...v,
+      symptoms: symptomRows.map(s => s.symptom_code),
+      report: report || null,
+      prescriptions,
+      events,
+      review: v.rating ? { rating: v.rating, tags: v.review_tags } : null,
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Error.' }); }
 });
 
 // SPA fallback — serve admin/index.html for all unmatched GET routes
