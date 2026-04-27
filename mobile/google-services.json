@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "52099120361",
+    "project_id": "doctito-82b74",
+    "storage_bucket": "doctito-82b74.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:52099120361:android:fa3039efccf6f8b64b8478",
+        "android_client_info": {
+          "package_name": "pe.doctorhouse.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvn0AKtXTLQb5YmpvGPLkYE8KJRGfIBU0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
