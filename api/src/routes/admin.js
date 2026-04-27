@@ -519,11 +519,11 @@ router.get('/consultations/:id', adminAuth, hasPermission('consultations'), asyn
 const nodePath = require('path');
 const ADMIN_CSP = [
   "default-src 'none'",
-  "script-src 'self' https://unpkg.com 'unsafe-eval'",
+  "script-src 'self' https://unpkg.com 'unsafe-eval' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob:",
-  "connect-src 'self'",
+  "connect-src 'self' https://unpkg.com",
 ].join('; ');
 
 router.get('*', (req, res) => {
