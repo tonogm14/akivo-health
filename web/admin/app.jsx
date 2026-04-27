@@ -1,17 +1,19 @@
 // app.jsx — router, DashboardApp, Main, entry point
 
 const ROUTES = {
-  '/admin/inicio':       { title:'Inicio',       adminOnly:false },
-  '/admin/aplicaciones': { title:'Aplicaciones', adminOnly:false },
-  '/admin/consultas':    { title:'Consultas',     adminOnly:true  },
-  '/admin/doctores':     { title:'Doctores',      adminOnly:true  },
+  '/admin/inicio': { title: 'Inicio', adminOnly: false },
+  '/admin/aplicaciones': { title: 'Aplicaciones', adminOnly: false },
+  '/admin/consultas': { title: 'Consultas', adminOnly: true },
+  '/admin/doctores': { title: 'Doctores', adminOnly: true },
+  '/admin/usuarios': { title: 'Gestión de Usuarios', adminOnly: true },
+  '/admin/auditoria': { title: 'Auditoría', adminOnly: true },
 };
 
 function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
   const T = useT();
   const { path, navigate } = useNav();
-  const [collapsed, setCollapsed]     = useState(false);
-  const [isMobile, setIsMobile]       = useState(window.innerWidth < 900);
+  const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 900);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -31,48 +33,60 @@ function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
   const title = routeInfo.title || 'Admin';
 
   return (
-    <div style={{ display:'flex', minHeight:'100vh', background:T.bg }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: T.bg }}>
       {(!isMobile || sidebarOpen) && (
         <Sidebar admin={admin} dark={dark} toggleDark={toggleDark} onLogout={onLogout}
           collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
           isMobile={isMobile} onClose={() => setSidebarOpen(false)} />
       )}
 
-      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {/* Top bar */}
-        <div style={{ height:58, borderBottom:`1px solid ${T.border}`, background:T.bgCard,
-          display:'flex', alignItems:'center', padding:'0 22px', gap:14,
-          position:'sticky', top:0, zIndex:10, boxShadow:T.shadowSm, flexShrink:0 }}>
+        <div style={{
+          height: 58, borderBottom: `1px solid ${T.border}`, background: T.bgCard,
+          display: 'flex', alignItems: 'center', padding: '0 22px', gap: 14,
+          position: 'sticky', top: 0, zIndex: 10, boxShadow: T.shadowSm, flexShrink: 0
+        }}>
           {isMobile && (
             <button onClick={() => setSidebarOpen(o => !o)}
-              style={{ background:'none', border:'none', color:T.inkSoft,
-                cursor:'pointer', padding:4, display:'flex' }}>
+              style={{
+                background: 'none', border: 'none', color: T.inkSoft,
+                cursor: 'pointer', padding: 4, display: 'flex'
+              }}>
               <Ic.Menu />
             </button>
           )}
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:10, fontWeight:600, color:T.inkMuted,
-              textTransform:'uppercase', letterSpacing:0.8, marginBottom:1 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 600, color: T.inkMuted,
+              textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 1
+            }}>
               Doctor House · {admin.role === 'admin' ? 'Administrador' : 'Operador'}
             </div>
-            <div style={{ fontSize:15, fontWeight:800, color:T.ink }}>{title}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.ink }}>{title}</div>
           </div>
           <button onClick={toggleDark}
-            style={{ background:T.bgInput, border:`1px solid ${T.border}`, borderRadius:8,
-              padding:'6px 10px', color:T.inkSoft, cursor:'pointer',
-              display:'flex', alignItems:'center', gap:6, fontSize:12, fontWeight:600 }}>
+            style={{
+              background: T.bgInput, border: `1px solid ${T.border}`, borderRadius: 8,
+              padding: '6px 10px', color: T.inkSoft, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600
+            }}>
             {dark ? <Ic.Sun /> : <Ic.Moon />}
-            {!isMobile && <span style={{ fontSize:12 }}>{dark ? 'Claro' : 'Oscuro'}</span>}
+            {!isMobile && <span style={{ fontSize: 12 }}>{dark ? 'Claro' : 'Oscuro'}</span>}
           </button>
         </div>
 
         {/* Page content */}
-        <main style={{ flex:1, padding:isMobile?16:28, maxWidth:1400,
-          width:'100%', margin:'0 auto', boxSizing:'border-box' }}>
-          {path === '/admin/inicio'       && admin.role === 'admin' && <OverviewView token={token} />}
+        <main style={{
+          flex: 1, padding: isMobile ? 16 : 28, maxWidth: 1400,
+          width: '100%', margin: '0 auto', boxSizing: 'border-box'
+        }}>
+          {path === '/admin/inicio' && (admin.is_root || admin.role === 'admin') && <OverviewView token={token} />}
           {path === '/admin/aplicaciones' && <ApplicationsView token={token} />}
-          {path === '/admin/consultas'    && admin.role === 'admin' && <ConsultationsView token={token} />}
-          {path === '/admin/doctores'     && admin.role === 'admin' && <DoctorsView token={token} />}
+          {path === '/admin/consultas' && (admin.is_root || admin.role === 'admin') && <ConsultationsView token={token} />}
+          {path === '/admin/doctores' && (admin.is_root || admin.role === 'admin') && <DoctorsView token={token} />}
+          {path === '/admin/usuarios' && (admin.is_root || admin.role === 'admin') && <ManagementView token={token} admin={admin} />}
+          {path === '/admin/auditoria' && (admin.is_root || admin.role === 'admin') && <LogsView token={token} />}
         </main>
       </div>
     </div>
@@ -148,7 +162,7 @@ function Main() {
       <NavCtx.Provider value={{ path, navigate }}>
         {auth
           ? <DashboardApp admin={auth.admin} token={auth.token}
-              onLogout={handleLogout} dark={dark} toggleDark={toggleDark} />
+            onLogout={handleLogout} dark={dark} toggleDark={toggleDark} />
           : <Login onLogin={handleLogin} dark={dark} toggleDark={toggleDark} />
         }
       </NavCtx.Provider>
