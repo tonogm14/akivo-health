@@ -37,7 +37,7 @@ function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: T.bg }}>
       {(!isMobile || sidebarOpen) && (
-        <Sidebar admin={admin} dark={dark} toggleDark={toggleDark} onLogout={onLogout}
+        <Sidebar token={token} admin={admin} dark={dark} toggleDark={toggleDark} onLogout={onLogout}
           collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
           isMobile={isMobile} onClose={() => setSidebarOpen(false)} />
       )}
