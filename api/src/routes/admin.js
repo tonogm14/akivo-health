@@ -146,15 +146,30 @@ router.get('/users/:id', adminAuth, hasPermission('management'), async (req, res
 });
 
 router.get('/users/:id/logs', adminAuth, hasPermission('management'), async (req, res) => {
+  const { id } = req.params;
+  const { dateFrom, search } = req.query;
   try {
-    const { rows } = await pool.query(`
-            SELECT l.*, a.name as admin_name, a.username as admin_username
-            FROM admin_audit_logs l
-            JOIN admins a ON l.admin_id = a.id
-            WHERE l.admin_id = $1
-            ORDER BY l.created_at DESC
-            LIMIT 100
-        `, [req.params.id]);
+    let query = `
+      SELECT l.*, a.name as admin_name, a.username as admin_username
+      FROM admin_audit_logs l
+      JOIN admins a ON l.admin_id = a.id
+      WHERE l.admin_id = $1
+    `;
+    const params = [id];
+
+    if (dateFrom) {
+      params.push(dateFrom);
+      query += ` AND l.created_at >= $${params.length}`;
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      query += ` AND (l.action ILIKE $${params.length} OR l.target_type ILIKE $${params.length} OR CAST(l.metadata AS TEXT) ILIKE $${params.length})`;
+    }
+
+    query += ` ORDER BY l.created_at DESC LIMIT 200`;
+
+    const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: 'Error.' }); }
 });

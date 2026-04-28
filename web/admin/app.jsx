@@ -9,6 +9,12 @@ const ROUTES = {
   '/admin/auditoria': { title: 'Auditoría', adminOnly: true },
 };
 
+function getRouteInfo(path) {
+  if (ROUTES[path]) return ROUTES[path];
+  if (path.startsWith('/admin/usuarios/')) return { title: 'Detalle de Usuario', adminOnly: true, isDetail: true };
+  return {};
+}
+
 function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
   const T = useT();
   const { path, navigate } = useNav();
@@ -24,13 +30,14 @@ function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
 
   // Redirect to default view if path not recognised
   useEffect(() => {
-    const isKnown = ROUTES[path] || path.startsWith('/admin/consultas/');
-    if (!isKnown) {
+    const info = getRouteInfo(path);
+    const isConsultaDetail = path.startsWith('/admin/consultas/');
+    if (!info.title && !isConsultaDetail) {
       navigate(admin.role === 'admin' ? '/admin/inicio' : '/admin/aplicaciones');
     }
   }, [path]);
 
-  const routeInfo = ROUTES[path] || ROUTES['/admin/consultas'] || {};
+  const routeInfo = getRouteInfo(path);
   const isConsultaDetail = path.startsWith('/admin/consultas/');
   const title = isConsultaDetail ? 'Detalle de Consulta' : (routeInfo.title || 'Admin');
 
@@ -88,6 +95,9 @@ function DashboardApp({ admin, token, onLogout, dark, toggleDark }) {
           {path.startsWith('/admin/consultas') && (admin.is_root || admin.role === 'admin') && <ConsultationsView token={token} />}
           {path === '/admin/doctores' && (admin.is_root || admin.role === 'admin') && <DoctorsView token={token} />}
           {path === '/admin/usuarios' && (admin.is_root || admin.role === 'admin') && <ManagementView token={token} admin={admin} />}
+          {path.startsWith('/admin/usuarios/') && (admin.is_root || admin.role === 'admin') && (
+            <UserDetailView token={token} admin={admin} userId={path.split('/').pop()} />
+          )}
           {path === '/admin/auditoria' && (admin.is_root || admin.role === 'admin') && <LogsView token={token} />}
         </main>
       </div>

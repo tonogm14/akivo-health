@@ -11,7 +11,19 @@ function DoctorsView({ token }) {
     setLoading(true);
     fetch('/admin/applications', { headers:{ Authorization:`Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setApps(d.rows || d); setLoading(false); })
+      .then(d => {
+        if (d) {
+          const rows = d.rows || d;
+          setApps(rows);
+          // Check for ?id= in URL to auto-select
+          const qId = new URLSearchParams(window.location.search).get('id');
+          if (qId) {
+            const found = rows.find(a => String(a.id) === qId);
+            if (found) setSelected(found);
+          }
+        }
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [token]);
 

@@ -14,8 +14,16 @@ function ApplicationsView({ token }) {
       const res = await fetch(url, { headers:{ Authorization:`Bearer ${token}` } });
       if (res.ok) {
         const d = await res.json();
-        setApps(d.rows || d);
+        const rows = d.rows || d;
+        setApps(rows);
         if (d.daily) setDaily(d.daily);
+
+        // Check for ?id= in URL to auto-select
+        const qId = new URLSearchParams(window.location.search).get('id');
+        if (qId) {
+           const found = rows.find(a => String(a.id) === qId);
+           if (found) setSelected(found);
+        }
       }
     } catch {} finally { setLoading(false); }
   }, [token, filterDate]);
