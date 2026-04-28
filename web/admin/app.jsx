@@ -116,6 +116,29 @@ function Main() {
     return () => window.removeEventListener('popstate', handler);
   }, []);
 
+  // Global Auth Interceptor
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const res = await originalFetch(...args);
+      // If we get unauthorized/forbidden on any request that ISN'T login
+      if ((res.status === 401 || res.status === 403) && !args[0].includes('/login')) {
+        const clone = res.clone();
+        try {
+          const data = await clone.json();
+          // Specific messages from our adminAuth middleware
+          const authErrors = ['Token inválido.', 'Acceso denegado.', 'No autorizado.'];
+          if (authErrors.includes(data.error) || res.status === 401) {
+            localStorage.removeItem('dh_admin_auth');
+            window.location.href = '/admin/?msg=expired';
+          }
+        } catch (e) {}
+      }
+      return res;
+    };
+    return () => { window.fetch = originalFetch; };
+  }, []);
+
   // Base CSS — injected once
   useEffect(() => {
     if (document.getElementById('dh-css')) return;

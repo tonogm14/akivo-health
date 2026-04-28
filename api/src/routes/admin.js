@@ -375,19 +375,23 @@ router.get('/consultations/stats', adminAuth, hasPermission('consultations'), as
   if (date_to)   { params.push(date_to);   where += ` AND v.created_at <  $${params.length}::date + interval '1 day'`; }
   if (user_id)   { params.push(user_id);   where += ` AND v.user_id = $${params.length}`; }
   try {
-    const { rows: [s] } = await pool.query(`
-      SELECT
-        COUNT(*)                                                                         AS total,
-        COUNT(*) FILTER (WHERE v.status IN ('pending','matched','on_way','arrived'))     AS active,
-        COUNT(*) FILTER (WHERE v.status = 'completed')                                  AS completed,
-        COUNT(*) FILTER (WHERE v.status = 'cancelled')                                  AS cancelled,
-        COALESCE(SUM(p.amount) FILTER (WHERE p.pstatus IN ('confirmed','paid')), 0)     AS revenue
-      FROM visits v
-      LEFT JOIN LATERAL (
-        SELECT amount, status AS pstatus FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1
-      ) p ON true
-      ${where}
-    `, params);
+    const [cntRes, revRes] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(*)                                                                                  AS total,
+          COUNT(*) FILTER (WHERE v.status::text IN ('pending','matched','on_way','arrived'))        AS active,
+          COUNT(*) FILTER (WHERE v.status::text = 'completed')                                     AS completed,
+          COUNT(*) FILTER (WHERE v.status::text = 'cancelled')                                     AS cancelled
+        FROM visits v ${where}
+      `, params),
+      pool.query(`
+        SELECT COALESCE(SUM(p.amount), 0) AS revenue
+        FROM payments p
+        JOIN visits v ON p.visit_id = v.id
+        WHERE p.status::text IN ('confirmed','paid') ${where.replace('WHERE 1=1', 'AND 1=1').replace('WHERE ', 'AND ')}
+      `, params),
+    ]);
+    const s = cntRes.rows[0];
     res.json({
       total: parseInt(s.total), active: parseInt(s.active),
       completed: parseInt(s.completed), cancelled: parseInt(s.cancelled),

@@ -21,6 +21,8 @@ function Login({ onLogin, dark, toggleDark }) {
     finally { setLoading(false); }
   };
 
+  const isExpired = new URLSearchParams(window.location.search).get('msg') === 'expired';
+
   const inp = {
     width:'100%', padding:'11px 14px', borderRadius:9,
     border:`1px solid ${T.border}`, background:T.bgInput,
