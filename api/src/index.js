@@ -59,11 +59,26 @@ app.use(helmet({
       scriptSrc: ["'none'"],
     },
   },
-  crossOriginEmbedderPolicy: true,
-  hsts: { maxAge: 31536000, includeSubDomains: true },
+  // API responses are fetched by external clients (mobile + admin SPA on separate origin)
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: { policy: 'require-corp' },
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
+  hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: 'no-referrer' },
+  permittedCrossDomainPolicies: { permittedPolicies: 'none' },
 }));
 
+// Permissions-Policy — restrict access to browser APIs this server never needs
+app.use((req, res, next) => {
+  res.setHeader(
+    'Permissions-Policy',
+    'geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()'
+  );
+  next();
+});
+
 // ── CORS — only the configured origin (app domain)
+// CORS_ORIGIN=* is acceptable in development; set a specific domain in production
 app.use(cors({
   origin: process.env.CORS_ORIGIN || false,
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
@@ -120,11 +135,19 @@ app.use('/apply',
 );
 
 // ── Admin Dashboard API (no HMAC verification, uses JWT)
+// In development the Vite proxy forwards same-origin — no CORS needed.
+// In production set ADMIN_CORS_ORIGIN to the deployed admin domain.
+// Supports comma-separated list for multi-origin setups.
+const adminCorsOrigin = process.env.ADMIN_CORS_ORIGIN
+  ? process.env.ADMIN_CORS_ORIGIN.split(',').map(s => s.trim())
+  : (process.env.NODE_ENV !== 'production' ? true : 'https://admin.doctorhouse.pe');
+
 app.use('/admin',
   cors({
-    origin: process.env.ADMIN_CORS_ORIGIN || 'https://admin.doctorhouse.pe',
+    origin: adminCorsOrigin,
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
   }),
   require('./routes/admin')
 );
@@ -134,8 +157,10 @@ app.use(apiKey);
 
 // ── Routes
 app.use('/auth', require('./routes/auth'));
+app.use('/coupons', require('./routes/coupons'));
 app.use('/doctors', require('./routes/doctors'));
 app.use('/visits', require('./routes/visits'));
+app.use('/visits', require('./routes/chat'));
 app.use('/payments', require('./routes/payments'));
 app.use('/reviews', require('./routes/reviews'));
 app.use('/users', require('./routes/users'));
@@ -147,9 +172,13 @@ app.use((req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 app.use(errorHandler);
 
 // ── Start
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Doctor House API · http://localhost:${PORT}`);
   console.log(`   Env: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Start background matching worker
+  const { startWorker } = require('./worker');
+  startWorker();
 });
 
-module.exports = app;
+module.exports = server;

@@ -18,6 +18,9 @@ export default function MapViewComponent({
   pinLabel,
   pulse,
   interactive = false,
+  onPointChange,
+  onRegionChange,
+  onRegionChangeComplete,
 }) {
   const mapRef   = useRef(null);
   const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -33,6 +36,20 @@ export default function MapViewComponent({
     ).start();
   }, [pulse]);
 
+  // Center map on patient whenever patient coords change (if no doctor is active yet)
+  useEffect(() => {
+    if (!mapRef.current || !patientLat || !patientLng || hasDoctor) return;
+    const t = setTimeout(() => {
+      mapRef.current?.animateCamera({
+        center: {
+          latitude: Number(patientLat),
+          longitude: Number(patientLng)
+        }
+      }, { duration: 1000 });
+    }, 100);
+    return () => clearTimeout(t);
+  }, [patientLat, patientLng]);
+
   // Fit map to show both patient and doctor whenever doctor coords change
   useEffect(() => {
     if (!mapRef.current || !doctorLat || !doctorLng || !patientLat || !patientLng) return;
@@ -40,7 +57,7 @@ export default function MapViewComponent({
       mapRef.current?.fitToCoordinates(
         [
           { latitude: Number(patientLat), longitude: Number(patientLng) },
-          { latitude: Number(doctorLat),  longitude: Number(doctorLng)  },
+          { latitude: Number(doctorLat), longitude: Number(doctorLng) },
         ],
         { edgePadding: { top: 100, right: 80, bottom: 120, left: 80 }, animated: true }
       );
@@ -68,8 +85,8 @@ export default function MapViewComponent({
         style={StyleSheet.absoluteFill}
         provider={PROVIDER_DEFAULT}
         initialRegion={initialRegion}
-        scrollEnabled={interactive}
-        zoomEnabled={interactive}
+        scrollEnabled={true}
+        zoomEnabled={true}
         rotateEnabled={false}
         pitchEnabled={false}
         showsUserLocation={false}
@@ -77,12 +94,17 @@ export default function MapViewComponent({
         showsCompass={false}
         toolbarEnabled={false}
         moveOnMarkerPress={false}
+        onRegionChange={onRegionChange}
+        onRegionChangeComplete={onRegionChangeComplete}
+        onPress={(e) => interactive && onPointChange && onPointChange(e.nativeEvent.coordinate)}
       >
-        {/* ── Patient pin ── */}
+        {/* ── Patient pin (Draggable if interactive) ── */}
         {hasPatient && (
           <Marker
             coordinate={{ latitude: Number(patientLat), longitude: Number(patientLng) }}
             anchor={{ x: 0.5, y: 1 }}
+            draggable={interactive}
+            onDragEnd={(e) => onPointChange && onPointChange(e.nativeEvent.coordinate)}
             tracksViewChanges={false}
           >
             <View style={st.patientWrap}>
@@ -126,8 +148,8 @@ export default function MapViewComponent({
         )}
       </MapView>
 
-      {/* Pulse overlay (centred on patient pin while choosing location) */}
-      {pulse && (
+      {/* Pulse overlay */}
+      {pulse && !hasDoctor && (
         <View style={st.pulseWrap} pointerEvents="none">
           <Animated.View style={[st.pulseRing, { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]} />
         </View>
@@ -190,6 +212,11 @@ const st = StyleSheet.create({
   pulseRing: {
     width: 70, height: 70, borderRadius: 35,
     backgroundColor: C.blue, opacity: 0.25,
+  },
+  fixedPinWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: -20, // Tip of the pin (41px total height) at center
   },
 
   // ETA badge

@@ -60,6 +60,8 @@ function SentSuccess({ method, onDone }) {
 
 export default function UploadRxScreen({ navigation }) {
   const { state } = useApp();
+  const patientName     = state.activeVisit?.patient || 'Paciente';
+  const patientInitials = patientName.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'P';
   const [method, setMethod]             = useState('whatsapp');
   const [includePhysical, setPhysical]  = useState(true);
   const [photoTaken, setPhotoTaken]     = useState(false);
@@ -138,10 +140,10 @@ export default function UploadRxScreen({ navigation }) {
         <View style={up.card}>
           <View style={up.recipientRow}>
             <View style={up.recipientAvatar}>
-              <Text style={up.recipientInitials}>JR</Text>
+              <Text style={up.recipientInitials}>{patientInitials}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={up.recipientName}>Juana Ramírez</Text>
+              <Text style={up.recipientName}>{patientName}</Text>
               <Text style={up.recipientSub}>
                 {method === 'email'    ? 'j.ramirez@gmail.com'
                  : method === 'whatsapp' ? '+51 999 123 456'

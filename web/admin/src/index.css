@@ -1,0 +1,26 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter Tight', 'Inter', -apple-system, system-ui, sans-serif;
+  background: #F6F7F9;
+  color: #0E1620;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { min-height: 100vh; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D5DAE0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #B0B8C4; }
+
+input, textarea, select { font-family: inherit; }
+button { cursor: pointer; }
+a { text-decoration: none; color: inherit; }

@@ -18,9 +18,8 @@ export default function PaymentConfirmScreen({ navigation }) {
           body: JSON.stringify({ status: 'completed' }),
         });
       } catch (_) {}
-      setState(s => ({ ...s, activeVisit: null }));
     }
-    navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+    navigation.navigate('PatientReview');
   };
 
   return (
@@ -105,7 +104,7 @@ export default function PaymentConfirmScreen({ navigation }) {
 
       <View style={pc.footer}>
         <TouchableOpacity style={pc.doneBtn} onPress={handleDone} activeOpacity={0.85}>
-          <Text style={pc.doneBtnTxt}>Volver al inicio</Text>
+          <Text style={pc.doneBtnTxt}>Dejar reseña al paciente →</Text>
         </TouchableOpacity>
       </View>
     </View>

@@ -9,7 +9,7 @@ const { otpVerify } = require('../middleware/rateLimit');
 const crypto        = require('crypto');
 const logEvent      = require('../db/logEvent');
 
-const PAYMENT_METHODS = ['yape', 'cash', 'card_culqi', 'card_niubiz', 'pagoefectivo'];
+const PAYMENT_METHODS = ['yape', 'yape_plin', 'cash', 'card_culqi', 'card_niubiz', 'pagoefectivo'];
 
 function validate(req, res, next) {
   const errors = validationResult(req);
@@ -27,7 +27,7 @@ router.post('/:visitId',
   validate,
   async (req, res, next) => {
     try {
-      const { method, culqi_token } = req.body;
+      const { method, culqi_token, operation_code } = req.body;
       const { visitId } = req.params;
 
       const { rows: [visit] } = await pool.query(
@@ -72,6 +72,8 @@ router.post('/:visitId',
         });
         gatewayRef = cip.cipCode;
         extra = { cip_code: cip.cipCode, cip_url: cip.cipUrl, expires_at: cip.expirationDate };
+      } else if (method === 'yape_plin' && operation_code) {
+        gatewayRef = operation_code;
       }
 
       const { rows: [payment] } = await pool.query(
@@ -136,6 +138,12 @@ router.post('/:visitId/confirm',
         method: updated.method,
         amount: updated.amount,
       });
+
+      // After payment confirm, the visit is officially 'matched'
+      await pool.query(
+        `UPDATE visits SET status = 'matched' WHERE id = $1 AND status != 'cancelled'`,
+        [visitId]
+      );
 
       res.json(updated);
     } catch (err) { next(err); }

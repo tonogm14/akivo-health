@@ -5,6 +5,19 @@ import { Icons } from '../components/Icons';
 import { C } from '../theme';
 import { API_BASE } from '../config';
 
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const months = ['enero','febrero','marzo','abril','mayo','junio','julio',
+                  'agosto','septiembre','octubre','noviembre','diciembre'];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+}
+
 function TopBar({ onBack }) {
   return (
     <View style={tb.wrap}>
@@ -21,9 +34,7 @@ function TopBar({ onBack }) {
 }
 
 function SectionTitle({ children }) {
-  return (
-    <Text style={rp.sectionTitle}>{children}</Text>
-  );
+  return <Text style={rp.sectionTitle}>{children}</Text>;
 }
 
 function MedRow({ med, idx }) {
@@ -68,11 +79,16 @@ export default function MedicalReportScreen({ navigation }) {
   const doctor = state.doctor       || {};
   const visit  = state.activeVisit  || {};
   const cons   = state.consultation || {};
-  const rx     = state.consultation?.prescription || [];
+  const rx     = cons.prescription  || [];
+  const vitals = cons.vitals        || {};
+
+  const chiefComplaint = (visit.symptoms || []).filter(Boolean).join(', ') || '—';
+  const recommendations = cons.recommendations || [];
+  const followUpPeriod  = cons.followUp || '7 días';
 
   const handleSend = async () => {
     const visitId = visit.id;
-    const token = state.authToken;
+    const token   = state.authToken;
 
     if (visitId && rx.length > 0) {
       setSubmitting(true);
@@ -90,9 +106,7 @@ export default function MedicalReportScreen({ navigation }) {
               frequency:     item.frequency || item.freq || null,
               duration_days: item.duration_days
                 ? parseInt(item.duration_days)
-                : item.duration
-                  ? parseInt(item.duration)
-                  : null,
+                : item.duration ? parseInt(item.duration) : null,
               instructions:  item.instructions || item.notes || null,
             })),
           }),
@@ -104,7 +118,7 @@ export default function MedicalReportScreen({ navigation }) {
       }
     }
 
-    navigation.navigate('UploadRx');
+    navigation.navigate(rx.length > 0 ? 'UploadRx' : 'PaymentConfirm');
   };
 
   return (
@@ -122,7 +136,7 @@ export default function MedicalReportScreen({ navigation }) {
             <View style={{ flex: 1 }} />
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={rp.folioLabel}>FOLIO</Text>
-              <Text style={rp.folioVal}>DH-2604-8812</Text>
+              <Text style={rp.folioVal}>DH-{visit.id?.slice(-8).toUpperCase() || '——'}</Text>
             </View>
           </View>
 
@@ -131,13 +145,18 @@ export default function MedicalReportScreen({ navigation }) {
             <View style={[rp.grid2, rp.dashed]}>
               <View>
                 <Text style={rp.fieldKey}>PACIENTE</Text>
-                <Text style={rp.fieldMain}>{visit.patient}</Text>
-                <Text style={rp.fieldSub}>{visit.gender} · {visit.age} años · DNI {visit.dni}</Text>
+                <Text style={rp.fieldMain}>{visit.patient || '—'}</Text>
+                <Text style={rp.fieldSub}>
+                  {[visit.gender, visit.age && `${visit.age} años`, visit.dni && `DNI ${visit.dni}`]
+                    .filter(Boolean).join(' · ') || '—'}
+                </Text>
               </View>
               <View>
                 <Text style={rp.fieldKey}>FECHA Y HORA</Text>
-                <Text style={rp.fieldMain}>24 abril 2026</Text>
-                <Text style={rp.fieldSub}>14:52 – 15:14 hrs</Text>
+                <Text style={rp.fieldMain}>{fmtDate(visit.consultation_started_at)}</Text>
+                <Text style={rp.fieldSub}>
+                  {fmtTime(visit.consultation_started_at)} – {fmtTime(visit.consultation_finished_at)} hrs
+                </Text>
               </View>
             </View>
 
@@ -158,22 +177,22 @@ export default function MedicalReportScreen({ navigation }) {
             {/* Sections */}
             <View style={rp.dashed}>
               <SectionTitle>MOTIVO DE CONSULTA</SectionTitle>
-              <Text style={rp.bodyTxt}>{cons.chiefComplaint}</Text>
+              <Text style={rp.bodyTxt}>{chiefComplaint}</Text>
             </View>
 
             <View style={rp.dashed}>
               <SectionTitle>SIGNOS VITALES</SectionTitle>
               <View style={rp.vitalsGrid}>
                 {[
-                  { l: 'T°',   v: cons.vitals.temp,  u: '°C',  alert: parseFloat(cons.vitals.temp) > 37.5 },
-                  { l: 'PA',   v: cons.vitals.bp,    u: 'mmHg', alert: true },
-                  { l: 'FC',   v: cons.vitals.hr,    u: 'lpm' },
-                  { l: 'SpO₂', v: cons.vitals.spo2,  u: '%' },
-                  { l: 'FR',   v: cons.vitals.rr,    u: 'rpm' },
+                  { l: 'T°',   v: vitals.temp, u: '°C',   alert: parseFloat(vitals.temp) > 37.5 },
+                  { l: 'PA',   v: vitals.bp,   u: 'mmHg', alert: false },
+                  { l: 'FC',   v: vitals.hr,   u: 'lpm' },
+                  { l: 'SpO₂', v: vitals.spo2, u: '%' },
+                  { l: 'FR',   v: vitals.rr,   u: 'rpm' },
                 ].map(x => (
                   <View key={x.l} style={[rp.vitalCell, { backgroundColor: x.alert ? C.redSoft : C.bg }]}>
                     <Text style={rp.vitalKey}>{x.l}</Text>
-                    <Text style={[rp.vitalVal, x.alert && { color: C.red }]}>{x.v}</Text>
+                    <Text style={[rp.vitalVal, x.alert && { color: C.red }]}>{x.v || '—'}</Text>
                     <Text style={rp.vitalUnit}>{x.u}</Text>
                   </View>
                 ))}
@@ -183,7 +202,10 @@ export default function MedicalReportScreen({ navigation }) {
             <View style={rp.dashed}>
               <SectionTitle>SÍNTOMAS</SectionTitle>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {cons.symptoms.map(s => (
+                {(cons.symptoms || []).length === 0 && (
+                  <Text style={rp.bodyTxt}>Sin síntomas registrados.</Text>
+                )}
+                {(cons.symptoms || []).map(s => (
                   <View key={s} style={rp.symptomChip}>
                     <Text style={rp.symptomChipTxt}>{s}</Text>
                   </View>
@@ -194,7 +216,7 @@ export default function MedicalReportScreen({ navigation }) {
             <View style={rp.dashed}>
               <SectionTitle>DIAGNÓSTICO</SectionTitle>
               <View style={rp.dxBox}>
-                <Text style={rp.dxMain}>{cons.diagnosis}</Text>
+                <Text style={rp.dxMain}>{cons.diagnosis || '—'}</Text>
                 <View style={rp.dxCode}>
                   <Text style={rp.dxCodeTxt}>CIE-10 · {cons.diagnosisCode || 'J03.9'}</Text>
                 </View>
@@ -203,14 +225,18 @@ export default function MedicalReportScreen({ navigation }) {
 
             <View style={rp.dashed}>
               <SectionTitle>RECOMENDACIONES</SectionTitle>
-              {cons.recommendations.map((r, i) => (
-                <View key={i} style={rp.recRow}>
-                  <View style={rp.recIcon}>
-                    <Icons.Check size={11} color={C.green} sw={3} />
+              {recommendations.length === 0 ? (
+                <Text style={rp.bodyTxt}>Sin recomendaciones adicionales.</Text>
+              ) : (
+                recommendations.map((r, i) => (
+                  <View key={i} style={rp.recRow}>
+                    <View style={rp.recIcon}>
+                      <Icons.Check size={11} color={C.green} sw={3} />
+                    </View>
+                    <Text style={rp.recTxt}>{r}</Text>
                   </View>
-                  <Text style={rp.recTxt}>{r}</Text>
-                </View>
-              ))}
+                ))
+              )}
             </View>
 
             {/* Follow-up */}
@@ -219,7 +245,7 @@ export default function MedicalReportScreen({ navigation }) {
               <View style={{ flex: 1 }}>
                 <Text style={rp.followUpLabel}>SEGUIMIENTO</Text>
                 <Text style={rp.followUpVal}>
-                  Nueva consulta en {cons.followUp} o antes si empeora
+                  Nueva consulta en {followUpPeriod} o antes si empeora
                 </Text>
               </View>
             </View>
@@ -236,33 +262,43 @@ export default function MedicalReportScreen({ navigation }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={rp.rxLabel}>RECETA MÉDICA ELECTRÓNICA</Text>
-                <Text style={rp.rxTitle}>Rx · {rx.length} medicamentos</Text>
-              </View>
-            </View>
-
-            <View style={{ gap: 10 }}>
-              {rx.map((m, i) => (
-                <MedRow key={i} med={m} idx={i + 1} />
-              ))}
-            </View>
-
-            {/* QR footer */}
-            <View style={rp.qrRow}>
-              <View style={rp.qrBox}>
-                <Text style={{ fontSize: 9, color: C.inkMuted, fontWeight: '700' }}>QR</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={rp.qrLabel}>VALIDEZ DE LA RECETA</Text>
-                <Text style={rp.qrTxt}>
-                  Vigente hasta el <Text style={{ fontWeight: '700' }}>30 abril 2026</Text>. Presenta el QR en cualquier farmacia afiliada.
+                <Text style={rp.rxTitle}>
+                  {rx.length > 0 ? `Rx · ${rx.length} medicamento${rx.length > 1 ? 's' : ''}` : 'Sin receta'}
                 </Text>
               </View>
             </View>
 
+            {rx.length === 0 ? (
+              <View style={{ padding: 16, borderRadius: 12, backgroundColor: C.bg, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: C.inkMuted }}>No se registraron medicamentos en esta consulta.</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {rx.map((m, i) => (
+                  <MedRow key={i} med={m} idx={i + 1} />
+                ))}
+              </View>
+            )}
+
+            {/* QR footer */}
+            {rx.length > 0 && (
+              <View style={rp.qrRow}>
+                <View style={rp.qrBox}>
+                  <Text style={{ fontSize: 9, color: C.inkMuted, fontWeight: '700' }}>QR</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={rp.qrLabel}>VALIDEZ DE LA RECETA</Text>
+                  <Text style={rp.qrTxt}>
+                    Vigente por 7 días desde hoy. Presenta el QR en cualquier farmacia afiliada.
+                  </Text>
+                </View>
+              </View>
+            )}
+
             {/* Signature */}
             <View style={rp.sigRow}>
               <View style={{ flex: 1 }}>
-                <Text style={rp.sigName}>M. Quispe</Text>
+                <Text style={rp.sigName}>{doctor.name?.split(' ').pop() || 'Firma'}</Text>
                 <View style={rp.sigLine} />
                 <Text style={rp.sigDrName}>{doctor.name}</Text>
                 <Text style={rp.sigDrSub}>CMP {doctor.cmp} · {doctor.specialty}</Text>
@@ -299,7 +335,7 @@ export default function MedicalReportScreen({ navigation }) {
       </ScrollView>
 
       <View style={rp.footer}>
-        <TouchableOpacity style={rp.editBtn} activeOpacity={0.8}>
+        <TouchableOpacity style={rp.editBtn} activeOpacity={0.8} onPress={() => navigation.goBack()}>
           <Text style={rp.editBtnTxt}>Editar</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -312,7 +348,9 @@ export default function MedicalReportScreen({ navigation }) {
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <>
-              <Text style={rp.sendBtnTxt}>Enviar y finalizar</Text>
+              <Text style={rp.sendBtnTxt}>
+                {rx.length > 0 ? 'Enviar y finalizar' : 'Finalizar sin receta'}
+              </Text>
               <Icons.Check size={18} color="#fff" />
             </>
           )}

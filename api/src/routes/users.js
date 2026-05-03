@@ -64,10 +64,18 @@ router.get('/:id/history', auth, async (req, res, next) => {
     const { rows } = await pool.query(`
       SELECT
         v.id, v.status, v.service_type, v.urgency, v.created_at, v.updated_at,
-        v.cancel_reason,
+        v.address, v.address_ref, v.latitude, v.longitude, v.scheduled_at, v.price,
         d.name  AS doctor_name,
-        d.specialty,
-        p.amount, p.method AS payment_method, p.status AS payment_status,
+        d.specialty AS doctor_specialty,
+        d.rating AS doctor_rating,
+        d.cmp_license AS doctor_cmp,
+        d.experience_years AS doctor_exp,
+        p.amount AS payment_amount, p.method AS payment_method, p.status AS payment_status,
+        row_to_json(vp) AS patient,
+        COALESCE(
+          (SELECT json_agg(vs.symptom_code) FROM visit_symptoms vs WHERE vs.visit_id = v.id),
+          '[]'
+        ) AS symptoms,
         COALESCE(
           (SELECT json_agg(json_build_object(
             'event_type', e.event_type,
@@ -81,6 +89,7 @@ router.get('/:id/history', auth, async (req, res, next) => {
       FROM visits v
       LEFT JOIN doctors  d ON d.id = v.doctor_id
       LEFT JOIN payments p ON p.visit_id = v.id
+      LEFT JOIN visit_patients vp ON vp.visit_id = v.id
       WHERE v.user_id = $1
       ORDER BY v.created_at DESC
       LIMIT 50

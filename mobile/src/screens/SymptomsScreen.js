@@ -61,7 +61,13 @@ export default function SymptomsScreen({ navigation }) {
     (otherOpen && otherText.trim().length > 0);
   const canContinue = hasSymptoms;
 
-  const onContinue = () => navigation.navigate('Location');
+  const onContinue = () => {
+    if (state.authToken) {
+      navigation.navigate('Matching');
+    } else {
+      navigation.navigate('PhoneVerification', { redirectTo: 'Matching' });
+    }
+  };
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>

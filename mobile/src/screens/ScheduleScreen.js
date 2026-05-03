@@ -192,11 +192,27 @@ function VisitEditModal({ visit, idx, visible, pickDays, onClose, onSave }) {
 
 export default function ScheduleScreen({ navigation }) {
   const { state, setState }           = useApp();
-  const [selDate, setSelDate]         = useState(state.schedDate ?? 1);
+  const [selDate, setSelDate]         = useState(() => {
+    if (state.schedDate !== undefined) return state.schedDate;
+    const now = new Date();
+    // Si ya pasaron las 7pm (19:00), el primer slot de hoy (9pm) está a menos de 2h, mejor sugerir mañana.
+    return now.getHours() >= 19 ? 1 : 0;
+  });
   const [selTime, setSelTime]         = useState(state.schedTime ?? null);
   const [recurringOpen, setRecurringOpen] = useState(false);
   const [editIdx, setEditIdx]         = useState(null);
   const recurring = state.recurring;
+  
+  // Reset time if it becomes disabled (e.g. switching to 'Today' late in the day)
+  React.useEffect(() => {
+    if (selDate === 0 && selTime) {
+      const currentHour = new Date().getHours();
+      const slotHour = parseInt(selTime.split(':')[0], 10);
+      if (slotHour < currentHour + 2) {
+        setSelTime(null);
+      }
+    }
+  }, [selDate]);
 
   const today = new Date();
   const days  = Array.from({ length: 14 }, (_, i) => {
@@ -267,26 +283,57 @@ export default function ScheduleScreen({ navigation }) {
             El doctor llega dentro de los siguientes <Text style={{ fontWeight: '700' }}>60 min</Text> a la hora escogida.
           </Text>
 
-          {GROUPS.map(g => (
-            <View key={g} style={{ marginBottom: 14 }}>
-              <Text style={s.groupLabel}>{g}</Text>
-              <View style={s.slotGrid}>
-                {SLOTS.filter(sl => sl.tag === g).map(sl => {
-                  const sel = selTime === sl.t;
-                  return (
-                    <TouchableOpacity
-                      key={sl.t} onPress={() => setSelTime(sl.t)} activeOpacity={0.8}
-                      style={[s.slot, sel && s.slotSel]}
-                    >
-                      <Text style={[s.slotText, sel && { color: '#fff' }]}>{sl.t}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
+          {(() => {
+            const isToday = selDate === 0;
+            const now = new Date();
+            const currentHour = now.getHours();
+            const minHour = currentHour + 2;
 
-          {/* Recurring card */}
+            return GROUPS.map(g => (
+              <View key={g} style={{ marginBottom: 14 }}>
+                <Text style={s.groupLabel}>{g}</Text>
+                <View style={s.slotGrid}>
+                  {SLOTS.filter(sl => sl.tag === g).map(sl => {
+                    const slotHour = parseInt(sl.t.split(':')[0], 10);
+                    const isDisabled = isToday && slotHour < minHour;
+                    const sel = selTime === sl.t;
+
+                    return (
+                      <TouchableOpacity
+                        key={sl.t} 
+                        onPress={() => {
+                          if (isDisabled) return;
+                          setSelTime(sl.t);
+                        }} 
+                        activeOpacity={isDisabled ? 1 : 0.8}
+                        style={[
+                          s.slot, 
+                          sel && s.slotSel,
+                          isDisabled && { 
+                            opacity: 0.5, 
+                            backgroundColor: '#F2F2F2', 
+                            borderColor: '#E0E0E0',
+                            elevation: 0,
+                            shadowOpacity: 0
+                          }
+                        ]}
+                      >
+                        <Text style={[
+                          s.slotText, 
+                          sel && { color: '#fff' }, 
+                          isDisabled && { color: '#BDBDBD' }
+                        ]}>
+                          {sl.t}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ));
+          })()}
+
+          {/* Recurring card - HIDDEN FOR NOW
           <TouchableOpacity
             style={[s.recurCard, recurring && s.recurCardActive]}
             onPress={() => setRecurringOpen(true)}
@@ -318,6 +365,7 @@ export default function ScheduleScreen({ navigation }) {
               <Feather name="chevron-right" size={16} color={C.blue} />
             )}
           </TouchableOpacity>
+          */}
 
           {/* Visit cards — shown on screen once recurring is set */}
           {recurring?.visits?.length > 0 && (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated, Easing, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { C } from '../theme';
@@ -15,6 +15,12 @@ const STAGES = [
   { label: 'Doctor llegó',      sub: 'Te está esperando en la puerta',         icon: 'check-circle' },
 ];
 
+const TELE_STAGES = [
+  { label: 'Médico asignado',  sub: 'El médico está revisando tu historial', icon: 'user-check' },
+  { label: 'Sala de espera',   sub: 'El médico iniciará la llamada pronto', icon: 'clock'    },
+  { label: 'En consulta',      sub: 'La videollamada ha comenzado',         icon: 'video' },
+];
+
 const PAYMENT_LABELS = {
   yape_plin:    'Yape / Plin',
   culqi:        'Culqi',
@@ -22,14 +28,55 @@ const PAYMENT_LABELS = {
   pagoefectivo: 'PagoEfectivo',
 };
 
-export default function TrackingScreen({ navigation }) {
+const AGE_LABELS = {
+  baby:  'Bebé (<2 años)',
+  child: 'Niño (2–12)',
+  teen:  'Adolescente (13–17)',
+  adult: 'Adulto (18–59)',
+  elder: 'Mayor (60+)',
+  other: 'Otro',
+};
+
+const URGENCY_LABELS = {
+  now:      'Lo antes posible',
+  today:    'Hoy',
+  schedule: 'Programado',
+};
+
+const SYMPTOM_LABELS = {
+  fever: 'Fiebre',
+  flu: 'Gripe / resfrío',
+  head: 'Dolor de cabeza',
+  stomach: 'Estómago',
+  throat: 'Dolor de Garganta',
+  body: 'Dolor muscular',
+  cough: 'Tos',
+  malaise: 'Malestar general',
+  fatigue: 'Fatiga / cansancio',
+  nausea: 'Náuseas o vómitos',
+  diarrhea: 'Diarrea',
+  constipation: 'Estreñimiento',
+  other: 'Otro',
+};
+
+export default function TrackingScreen({ navigation, route }) {
   const { state } = useApp();
+  const visitId = route.params?.visitId || state.visitId;
   const [stage, setStage]         = useState(0);
   const [showDetail, setShowDetail] = useState(false);
   const [liveEta, setLiveEta]     = useState(null);
   const [doctorCoords, setDoctorCoords] = useState({ lat: null, lng: null });
+  const [fullVisit, setFullVisit] = useState(null);
+
+  // Robust data accessors
+  const drName = fullVisit?.doctor_name || fullVisit?.doctor?.name || state.assignedDoctor?.name || state.doctorName || '—';
+  const drSpec = fullVisit?.doctor_specialty || fullVisit?.doctor?.specialty || state.assignedDoctor?.specialty || state.doctorSpec || 'Medicina General';
+  const drRating = fullVisit?.doctor_rating || fullVisit?.doctor?.rating || state.assignedDoctor?.rating || '—';
   const notifiedRef               = useRef(false);
-  const cur = STAGES[stage];
+  const pulseAnim                 = useRef(new Animated.Value(0.4)).current;
+  const isTele = fullVisit?.service_type === 'telemedicine' || state.serviceType === 'telemedicine';
+  const currentStages = isTele ? TELE_STAGES : STAGES;
+  const cur = currentStages[stage];
 
   const doc = state.assignedDoctor;
   const doctorName   = doc?.name      || 'Doctor asignado';
@@ -37,6 +84,16 @@ export default function TrackingScreen({ navigation }) {
   const doctorRating = doc?.rating    ?? '—';
   const baseEta      = doc?.eta       ?? 35;
   const currentEta   = liveEta !== null ? liveEta : baseEta;
+
+  // Pulse animation for active progress line
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
 
   // Schedule local "arriving" notification based on current ETA
   useEffect(() => {
@@ -48,15 +105,24 @@ export default function TrackingScreen({ navigation }) {
 
   // Poll GET /visits/:id/eta every 30 seconds for GPS-based ETA
   useEffect(() => {
-    if (!state.visitId) return;
+    if (!visitId) return;
 
     const poll = async () => {
       try {
         const headers = {};
         if (state.authToken) headers['Authorization'] = `Bearer ${state.authToken}`;
-        const res = await fetch(`${API_BASE}/visits/${state.visitId}/eta`, { headers });
+        
+        // Fetch ETA and status
+        const res = await fetch(`${API_BASE}/visits/${visitId}/eta`, { headers });
         if (!res.ok) return;
         const data = await res.json();
+
+        // Also fetch full visit details if not loaded or just to keep updated
+        const vRes = await fetch(`${API_BASE}/visits/${visitId}`, { headers });
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          setFullVisit(vData);
+        }
 
         if (data.status === 'completed') {
           navigation.replace('Feedback');
@@ -77,22 +143,32 @@ export default function TrackingScreen({ navigation }) {
     poll();
     const iv = setInterval(poll, 30_000);
     return () => clearInterval(iv);
-  }, [state.visitId]);
+  }, [visitId]);
 
   const etaLabel = stage === 2 ? 'Ahora' : `${currentEta} min`;
 
   return (
     <View style={s.container}>
-      <MapViewComponent
-        height={300}
-        patientLat={state.lat}
-        patientLng={state.lng}
-        doctorLat={doctorCoords.lat}
-        doctorLng={doctorCoords.lng}
-        pinLabel="Tu casa"
-        eta={etaLabel}
-        interactive
-      />
+      {isTele ? (
+        <View style={{ height: 260, backgroundColor: C.blueSoft, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+            <Feather name="video" size={32} color={C.blue} />
+          </View>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: C.blue }}>Sala de espera virtual</Text>
+          <Text style={{ fontSize: 14, color: C.inkSoft, marginTop: 4 }}>El médico se unirá en breve</Text>
+        </View>
+      ) : (
+        <MapViewComponent
+          height={450}
+          patientLat={state.lat}
+          patientLng={state.lng}
+          doctorLat={doctorCoords.lat}
+          doctorLng={doctorCoords.lng}
+          pinLabel="Tu casa"
+          eta={etaLabel}
+          interactive
+        />
+      )}
 
       {/* Floating top buttons */}
       <SafeAreaView style={s.floatingTop} edges={['top']} pointerEvents="box-none">
@@ -100,9 +176,11 @@ export default function TrackingScreen({ navigation }) {
           <TouchableOpacity style={s.floatBtn} onPress={() => navigation.navigate('Home')}>
             <Feather name="chevron-left" size={22} color={C.ink} />
           </TouchableOpacity>
-          <TouchableOpacity style={s.cancelFloatBtn} onPress={() => navigation.navigate('Cancel')}>
-            <Text style={s.cancelFloatText}>Cancelar</Text>
-          </TouchableOpacity>
+          {stage < 2 && (
+            <TouchableOpacity style={s.cancelFloatBtn} onPress={() => navigation.navigate('Cancel')}>
+              <Text style={s.cancelFloatText}>Cancelar</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </SafeAreaView>
 
@@ -123,35 +201,52 @@ export default function TrackingScreen({ navigation }) {
 
         {/* Progress */}
         <View style={s.progressRow}>
-          {STAGES.map((st, i) => (
-            <View key={i} style={s.progressStep}>
-              <View style={[s.progressDot, i <= stage && { backgroundColor: C.blue }]}>
-                <Feather name={st.icon} size={10} color={i <= stage ? '#fff' : C.inkMuted} />
+          {currentStages.map((st, i) => {
+            const isPast = i < stage;
+            const isCurrent = i === stage;
+            const isLast = i === currentStages.length - 1;
+
+            return (
+              <View key={i} style={[s.progressStep, isLast && { flex: 0 }]}>
+                <View style={[s.progressDot, i <= stage && { backgroundColor: C.blue }]}>
+                  <Feather name={st.icon} size={18} color={i <= stage ? '#fff' : C.inkMuted} />
+                </View>
+                {!isLast && (
+                  <View style={s.lineWrapper}>
+                    <View style={s.progressLine} />
+                    {(isPast || isCurrent) && (
+                      <Animated.View 
+                        style={[
+                          s.progressLineActive, 
+                          isCurrent && { opacity: pulseAnim },
+                          { width: '100%' }
+                        ]} 
+                      />
+                    )}
+                  </View>
+                )}
               </View>
-              {i < STAGES.length - 1 && (
-                <View style={[s.progressLine, i < stage && { backgroundColor: C.blue }]} />
-              )}
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Doctor card */}
         <Card pad={14} style={s.doctorCard}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Avatar name={doctorName} size={52} ring={C.blue} />
+            <Avatar name={drName} size={52} ring={C.blue} />
             <View style={{ flex: 1 }}>
-              <Text style={s.drName}>{doctorName}</Text>
-              <Text style={s.drSpec}>{doctorSpec}</Text>
+              <Text style={s.drName}>Dr. {drName}</Text>
+              <Text style={s.drSpec}>{drSpec}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
                 <Feather name="star" size={12} color="#F5A623" />
-                <Text style={s.drRating}>{doctorRating}</Text>
+                <Text style={s.drRating}>{drRating}</Text>
               </View>
             </View>
-            <TouchableOpacity style={[s.contactBtn, { backgroundColor: '#E8F8EA' }]}>
-              <Feather name="message-circle" size={20} color="#0F6B34" />
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.contactBtn, { backgroundColor: C.blueSoft }]}>
-              <Feather name="phone" size={18} color={C.blue} />
+            <TouchableOpacity 
+              style={[s.contactBtn, { backgroundColor: '#E8F8EA', width: 56, height: 56, borderRadius: 28 }]}
+              onPress={() => navigation.navigate('Chat', { visitId: visitId, doctorName: drName })}
+            >
+              <Feather name="message-circle" size={24} color="#0F6B34" />
             </TouchableOpacity>
           </View>
         </Card>
@@ -162,33 +257,101 @@ export default function TrackingScreen({ navigation }) {
           <Feather name={showDetail ? 'chevron-up' : 'chevron-down'} size={18} color={C.blue} />
         </TouchableOpacity>
 
-        {showDetail && (
-          <View style={s.detailBox}>
-            <DetailRow icon="map-pin"     label="Dirección"   value={state.address || '—'} />
-            {state.ref ? <DetailRow icon="info" label="Referencia" value={state.ref} /> : null}
-            <DetailRow icon="activity"    label="Síntomas"    value={state.symptoms?.join(', ') || '—'} />
-            <DetailRow icon="user"        label="Paciente"    value={state.patient?.name || '—'} />
-            <DetailRow icon="users"       label="Edad"        value={state.patient?.age_group || '—'} />
-            <DetailRow icon="clock"       label="Urgencia"    value={state.urgency === 'now' ? 'Ahora' : state.urgency === 'today' ? 'Hoy' : 'Programado'} />
-            <DetailRow icon="credit-card" label="Pago"        value={PAYMENT_LABELS[state.payment] || state.payment || '—'} />
-            <DetailRow icon="dollar-sign" label="Total"       value="S/ 120.00" />
-            <DetailRow icon="shield"      label="Colegiatura" value={doc?.cmp_license || '—'} />
-            <DetailRow icon="award"       label="Experiencia" value={doc?.experience_years ? `${doc.experience_years} años` : '—'} />
-          </View>
+
+        {/* Action Button for Telemedicine */}
+        {isTele && stage === 2 && (
+          <PrimaryButton 
+            style={{ marginTop: 20 }}
+            onPress={() => Alert.alert("Iniciando videollamada", "Conectando con el médico...")}
+          >
+            Iniciar videollamada
+          </PrimaryButton>
         )}
 
         {/* Demo advance */}
         <View style={{ marginTop: 12 }}>
-          {stage < 2 ? (
+          {stage < 2 && (
             <TouchableOpacity onPress={() => setStage(stage + 1)} style={s.demoBtn}>
               <Text style={s.demoBtnText}>▸ Avanzar etapa (demo)</Text>
             </TouchableOpacity>
-          ) : (
-            <PrimaryButton onPress={() => navigation.navigate('Feedback')}>
-              Terminar visita
-            </PrimaryButton>
           )}
         </View>
+
+        {/* Modal Detalle de la Cita */}
+        <Modal visible={showDetail} transparent animationType="slide" onRequestClose={() => setShowDetail(false)}>
+          <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowDetail(false)}>
+            <TouchableOpacity style={s.modalSheet} activeOpacity={1}>
+              <View style={s.modalHandle} />
+              <View style={s.modalHeader}>
+                <Text style={s.modalTitle}>Detalle de la visita</Text>
+                <TouchableOpacity onPress={() => setShowDetail(false)} style={s.modalClose}>
+                  <Feather name="x" size={20} color={C.inkSoft} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={s.modalDetailBox}>
+                  <DetailRow icon="map-pin"     label="Dirección"   value={fullVisit?.address || state.address || '—'} />
+                  {(fullVisit?.address_ref || state.ref) ? <DetailRow icon="info" label="Referencia" value={fullVisit?.address_ref || state.ref} /> : null}
+                  <DetailRow 
+                    icon="activity"    
+                    label="Síntomas"    
+                    value={(() => {
+                      const syms = fullVisit?.symptoms || state.symptoms || [];
+                      if (!Array.isArray(syms) || syms.length === 0) return '—';
+                      return syms.map(s => {
+                        if (typeof s !== 'string') return '';
+                        if (s.startsWith('other:')) return s.replace('other:', '');
+                        return SYMPTOM_LABELS[s] || s;
+                      }).filter(Boolean).join(', ');
+                    })()} 
+                  />
+                  <DetailRow icon="user"        label="Paciente"    value={fullVisit?.patient?.name || state.patient?.name || '—'} />
+                  <DetailRow 
+                    icon="credit-card" 
+                    label="DNI/CE" 
+                    value={fullVisit?.patient?.document || state.patient?.document || fullVisit?.patient?.document_id || 'No registrado'} 
+                  />
+                  <DetailRow 
+                    icon="users"       
+                    label="Edad"        
+                    value={(() => {
+                      const p = fullVisit?.patient || state.patient || {};
+                      const slug = p.age_group || p.ageGroup;
+                      const label = AGE_LABELS[slug] || slug || '—';
+                      const ageText = p.age ? ` (${p.age} años)` : '';
+                      return label + ageText;
+                    })()} 
+                  />
+                  {(fullVisit?.patient?.has_meds !== undefined || state.patient?.hasMeds !== undefined) && (
+                    <DetailRow 
+                      icon="shopping-bag" 
+                      label="Inyectables" 
+                      value={(fullVisit?.patient?.has_meds ?? state.patient?.hasMeds) ? 'Paciente ya los tiene' : `Médico trae: ${fullVisit?.patient?.med_name || state.patient?.medName || 'Inyectable'}`} 
+                    />
+                  )}
+                  {!!(fullVisit?.patient?.notes || state.patient?.notes) && (
+                    <DetailRow icon="file-text" label="Notas" value={fullVisit?.patient?.notes || state.patient?.notes} />
+                  )}
+                  <DetailRow icon="star"        label="Tipo Médico" value={(fullVisit?.doctor_type || state.doctorType) === 'specialist' ? 'Especialista' : 'Médico General'} />
+                  {!!(fullVisit?.specialty_requested || state.specialtyRequested) && (
+                    <DetailRow icon="award" label="Especialidad" value={fullVisit?.specialty_requested || state.specialtyRequested} />
+                  )}
+                  <DetailRow icon="clock"       label="Urgencia"    value={URGENCY_LABELS[fullVisit?.urgency || state.urgency] || '—'} />
+                  <DetailRow icon="credit-card" label="Pago"        value={PAYMENT_LABELS[fullVisit?.payment?.method || state.payment] || '—'} />
+                  <DetailRow icon="dollar-sign" label="Total"       value={`S/ ${fullVisit?.price || '120.00'}`} />
+                  <DetailRow icon="shield"      label="Colegiatura" value={fullVisit?.doctor?.cmp_license || doc?.cmp_license || '—'} />
+                  <DetailRow icon="award"       label="Experiencia" value={fullVisit?.doctor?.experience_years ? `${fullVisit.doctor.experience_years} años` : (doc?.experience_years ? `${doc.experience_years} años` : '—')} />
+                </View>
+                <View style={{ height: 30 }} />
+              </ScrollView>
+
+              <PrimaryButton onPress={() => setShowDetail(false)}>
+                Entendido
+              </PrimaryButton>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </ScrollView>
     </View>
   );
@@ -232,10 +395,13 @@ const s = StyleSheet.create({
   progressRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
   progressStep: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   progressDot: {
-    width: 24, height: 24, borderRadius: 12,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: C.line, alignItems: 'center', justifyContent: 'center',
+    zIndex: 2,
   },
-  progressLine: { flex: 1, height: 3, backgroundColor: C.line, marginHorizontal: 2 },
+  lineWrapper: { flex: 1, height: 4, marginHorizontal: -2, justifyContent: 'center' },
+  progressLine: { width: '100%', height: 4, backgroundColor: C.line, borderRadius: 2 },
+  progressLineActive: { position: 'absolute', height: 4, backgroundColor: C.blue, borderRadius: 2 },
   doctorCard:   { marginBottom: 10 },
   drName:       { fontSize: 15, fontWeight: '700', color: C.ink },
   drSpec:       { fontSize: 12.5, color: C.inkSoft, marginTop: 1 },
@@ -255,4 +421,12 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: C.line, backgroundColor: '#fff', alignItems: 'center',
   },
   demoBtnText: { fontSize: 13, fontWeight: '600', color: C.inkSoft },
+  
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '85%' },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: C.line, alignSelf: 'center', marginBottom: 16 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: C.ink },
+  modalClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
+  modalDetailBox: { backgroundColor: C.bg, borderRadius: 14, padding: 14, gap: 10 },
 });

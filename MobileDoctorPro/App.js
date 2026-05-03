@@ -13,6 +13,7 @@ import ConsultationScreen  from './src/screens/ConsultationScreen';
 import MedicalReportScreen from './src/screens/MedicalReportScreen';
 import UploadRxScreen      from './src/screens/UploadRxScreen';
 import PaymentConfirmScreen from './src/screens/PaymentConfirmScreen';
+import PatientReviewScreen from './src/screens/PatientReviewScreen';
 import EarningsScreen      from './src/screens/EarningsScreen';
 import HistoryScreen       from './src/screens/HistoryScreen';
 import ProfileScreen       from './src/screens/ProfileScreen';
@@ -36,7 +37,8 @@ export default function App() {
             <Stack.Screen name="Consultation"  component={ConsultationScreen} />
             <Stack.Screen name="MedicalReport" component={MedicalReportScreen} />
             <Stack.Screen name="UploadRx"      component={UploadRxScreen} />
-            <Stack.Screen name="PaymentConfirm" component={PaymentConfirmScreen} />
+            <Stack.Screen name="PaymentConfirm"  component={PaymentConfirmScreen} />
+            <Stack.Screen name="PatientReview"   component={PatientReviewScreen} />
             <Stack.Screen name="Earnings"      component={EarningsScreen} />
             <Stack.Screen name="History"       component={HistoryScreen} />
             <Stack.Screen name="Profile"       component={ProfileScreen} />

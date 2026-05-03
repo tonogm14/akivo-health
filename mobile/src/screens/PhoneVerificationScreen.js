@@ -11,7 +11,7 @@ import { TopBar, BottomBar, PrimaryButton } from '../components';
 import { useApp } from '../AppContext';
 import { API_BASE } from '../config';
 
-export default function PhoneVerificationScreen({ navigation }) {
+export default function PhoneVerificationScreen({ navigation, route }) {
   const { state, setState } = useApp();
 
   const [step, setStep] = useState('phone');   // 'phone' | 'otp'
@@ -59,12 +59,13 @@ export default function PhoneVerificationScreen({ navigation }) {
 
       // Guardar token permanentemente
       await AsyncStorage.multiSet([
-        ['dh_auth_token', data.token],
+        ['auth_token', data.token],
         ['dh_user_phone', fullPhone],
       ]);
       setState({ ...state, authToken: data.token, userPhone: fullPhone });
 
-      navigation.replace('Payment');
+      const redirectTo = route.params?.redirectTo || 'Home';
+      navigation.replace(redirectTo);
     } catch (err) {
       Alert.alert('Código inválido', err.message);
       setOtp('');

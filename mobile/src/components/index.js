@@ -33,31 +33,53 @@ export function SecondaryButton({ children, onPress, style }) {
 }
 
 // ── Top bar with back button and optional step dots
-export function TopBar({ onBack, title, step, total }) {
+export function TopBar({ onBack, title, step, total, rightIcon, onRightPress }) {
+  const hasBack = onBack !== undefined;
+  const hasRight = !!rightIcon;
+
   return (
     <View style={s.topBar}>
-      {onBack !== undefined && (
+      {hasBack ? (
         <TouchableOpacity onPress={onBack} style={s.backBtn}>
           <Feather name="chevron-left" size={22} color={C.ink} />
         </TouchableOpacity>
+      ) : (
+        hasRight && <View style={{ width: 36 }} />
       )}
+      
       {title && (
-        <Text style={[s.topBarTitle, onBack !== undefined && { marginRight: 36 }]} numberOfLines={1}>
+        <Text 
+          style={[
+            s.topBarTitle, 
+            hasBack && !hasRight && { marginRight: 36 },
+            !hasBack && hasRight && { marginLeft: 36 }
+          ]} 
+          numberOfLines={1}
+        >
           {title}
         </Text>
       )}
-      {step !== undefined && (
-        <View style={s.stepDots}>
-          {Array.from({ length: total || 4 }).map((_, i) => (
-            <View
-              key={i}
-              style={[
-                s.dot,
-                { width: i === step ? 24 : 8, backgroundColor: i <= step ? C.blue : C.lineStrong },
-              ]}
-            />
-          ))}
-        </View>
+
+      {hasRight ? (
+        <TouchableOpacity onPress={onRightPress} style={s.backBtn}>
+          <Feather name={rightIcon} size={22} color={C.ink} />
+        </TouchableOpacity>
+      ) : (
+        step !== undefined ? (
+          <View style={s.stepDots}>
+            {Array.from({ length: total || 4 }).map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  s.dot,
+                  { width: i === step ? 24 : 8, backgroundColor: i <= step ? C.blue : C.lineStrong },
+                ]}
+              />
+            ))}
+          </View>
+        ) : (
+          hasBack && <View style={{ width: 36 }} />
+        )
       )}
     </View>
   );

@@ -18,6 +18,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const STATUS_META = {
   pending:   { label: 'Pendiente',       color: C.amber,    bg: C.amberSoft },
+  unmatch:   { label: 'Buscando médico', color: C.amber, bg: C.amberSoft },
   matched:   { label: 'Asignado',        color: C.blue,     bg: C.blueSoft  },
   on_way:    { label: 'En camino',       color: C.blue,     bg: C.blueSoft  },
   arrived:   { label: 'Llegó',          color: C.green,    bg: C.greenSoft },
@@ -114,8 +115,9 @@ function EventTimeline({ events }) {
   );
 }
 
-function VisitCard({ item }) {
+function VisitCard({ item, navigation }) {
   const [expanded, setExpanded] = useState(false);
+  const isPendingPay = item.status === 'pending_payment';
   const si = STATUS_META[item.status] ?? { label: item.status, color: C.inkMuted, bg: C.bg };
   const doctorLabel = item.doctor_name || 'Sin asignar';
   const specialty   = item.specialty   || 'Medicina General';
@@ -227,9 +229,13 @@ export default function VisitListScreen({ navigation }) {
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data.visits || data.history || []);
+      
+      // Filter out unpaid visits
+      const filtered = list;
+      
       // Most recent first
-      list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setVisits(list);
+      filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setVisits(filtered);
     } catch (err) {
       setError(err.message || 'No se pudo cargar el historial');
       setVisits([]);
@@ -278,7 +284,7 @@ export default function VisitListScreen({ navigation }) {
           keyExtractor={(item, i) => item.id ? String(item.id) : String(i)}
           contentContainerStyle={vs.list}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => <VisitCard item={item} />}
+          renderItem={({ item }) => <VisitCard item={item} navigation={navigation} />}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         />
       )}
@@ -342,6 +348,11 @@ const vs = StyleSheet.create({
   rightCol: { alignItems: 'flex-end', gap: 2 },
   badge:    { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
   badgeText:{ fontSize: 11, fontWeight: '700' },
+  payNowBtn: {
+    marginTop: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6,
+    backgroundColor: C.amber,
+  },
+  payNowText: { fontSize: 10, fontWeight: '700', color: '#fff' },
   amount:   { fontSize: 12, fontWeight: '700', color: C.ink },
 
   metaRow: {

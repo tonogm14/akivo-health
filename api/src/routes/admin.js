@@ -360,6 +360,32 @@ router.get('/doctors/:id', adminAuth, hasPermission('doctors'), async (req, res)
   } catch (err) { res.status(500).json({ error: 'Error.' }); }
 });
 
+router.get('/doctors/:id/stats', adminAuth, hasPermission('doctors'), async (req, res) => {
+  try {
+    const { rows: [stats] } = await pool.query(`
+      SELECT
+        COUNT(v.*)                                                        AS total_visits,
+        COUNT(v.*) FILTER (WHERE v.status = 'completed')                 AS completed_visits,
+        COUNT(v.*) FILTER (WHERE v.status = 'cancelled')                 AS cancelled_visits,
+        ROUND(AVG(r.rating)::numeric, 2)                                 AS avg_rating,
+        COUNT(r.*)                                                        AS total_reviews,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status IN ('confirmed','paid')), 0) AS total_revenue,
+        ROUND(COALESCE(
+          SUM(EXTRACT(EPOCH FROM (cr.consultation_finished_at - cr.consultation_started_at)) / 60)::numeric,
+          0
+        ) / 60, 1)                                                        AS total_hours
+      FROM visits v
+      LEFT JOIN reviews r ON r.visit_id = v.id
+      LEFT JOIN LATERAL (
+        SELECT amount, status FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1
+      ) p ON true
+      LEFT JOIN consultation_reports cr ON cr.visit_id = v.id
+      WHERE v.doctor_id = $1
+    `, [req.params.id]);
+    res.json(stats || {});
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
 router.post('/doctors/:id/deactivate', adminAuth, hasPermission('doctors'), async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -381,6 +407,22 @@ router.post('/doctors/:id/deactivate', adminAuth, hasPermission('doctors'), asyn
 });
 
 /** ── Consultations ──────────────────────────────────────────── */
+
+router.get('/consultations/:id/chat', adminAuth, hasPermission('consultations'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT cm.*,
+        CASE WHEN cm.sender_type = 'patient' THEN COALESCE(u.name, 'Paciente') ELSE COALESCE(d.name, 'Médico') END AS sender_name
+      FROM chat_messages cm
+      LEFT JOIN users   u ON cm.sender_type = 'patient' AND cm.sender_id = u.id
+      LEFT JOIN doctors d ON cm.sender_type = 'doctor'  AND cm.sender_id = d.id
+      WHERE cm.visit_id = $1
+      ORDER BY cm.created_at ASC
+    `, [req.params.id]);
+    await logAction(req.admin.id, 'view_chat', 'visit', req.params.id);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
 
 router.get('/consultations/stats', adminAuth, hasPermission('consultations'), async (req, res) => {
   const { date_from, date_to, user_id } = req.query;
@@ -534,20 +576,491 @@ router.get('/consultations/:id', adminAuth, hasPermission('consultations'), asyn
   } catch (err) { console.error(err); res.status(500).json({ error: 'Error.' }); }
 });
 
+/** ── Patients ───────────────────────────────────────────── */
+
+router.get('/patients', adminAuth, hasPermission('consultations'), async (req, res) => {
+  const { search, limit = 100, offset = 0 } = req.query;
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (search) { params.push(`%${search}%`); where += ` AND (u.name ILIKE $${params.length} OR u.phone ILIKE $${params.length})`; }
+  try {
+    const cntRes = await pool.query(`SELECT COUNT(*) FROM users u ${where}`, params);
+    params.push(parseInt(limit), parseInt(offset));
+    const { rows } = await pool.query(`
+      SELECT u.id, u.name, u.phone, u.created_at,
+        (SELECT COUNT(*) FROM visits v WHERE v.user_id = u.id) AS visit_count
+      FROM users u ${where}
+      ORDER BY u.created_at DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+    res.json({ rows, total: parseInt(cntRes.rows[0].count) });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Patients ───────────────────────────────────────────── */
+
+router.get('/patients/:id', adminAuth, hasPermission('consultations'), async (req, res) => {
+  try {
+    const { rows: [user] } = await pool.query(
+      'SELECT id, name, phone, created_at, push_token IS NOT NULL AS has_push FROM users WHERE id = $1',
+      [req.params.id]
+    );
+    if (!user) return res.status(404).json({ error: '404' });
+
+    const [{ rows: visits }, { rows: [agg] }] = await Promise.all([
+      pool.query(`
+        SELECT v.id, v.status, v.urgency, v.service_type, v.address, v.created_at,
+          d.name AS doctor_name, d.specialty,
+          p.amount, p.tip, p.method AS payment_method,
+          r.rating
+        FROM visits v
+        LEFT JOIN doctors d ON v.doctor_id = d.id
+        LEFT JOIN LATERAL (
+          SELECT amount, tip, method FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1
+        ) p ON true
+        LEFT JOIN reviews r ON r.visit_id = v.id
+        WHERE v.user_id = $1
+        ORDER BY v.created_at DESC
+        LIMIT 50
+      `, [req.params.id]),
+      pool.query(`
+        SELECT
+          COUNT(*)                                                AS total,
+          COUNT(*) FILTER (WHERE v.status = 'completed')         AS completed,
+          COALESCE(SUM(p.amount + COALESCE(p.tip,0)), 0)         AS total_spent
+        FROM visits v
+        LEFT JOIN LATERAL (
+          SELECT amount, tip FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1
+        ) p ON true
+        WHERE v.user_id = $1
+      `, [req.params.id]),
+    ]);
+
+    res.json({ ...user, visits, stats: agg });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Payouts ────────────────────────────────────────────── */
+
+router.get('/payouts', adminAuth, hasPermission('consultations'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT p.id, p.visit_id, p.amount, p.tip, p.method AS payment_method, p.status, p.created_at,
+        u.name AS patient_name,
+        d.name AS doctor_name
+      FROM payments p
+      LEFT JOIN visits v ON p.visit_id = v.id
+      LEFT JOIN users u ON v.user_id = u.id
+      LEFT JOIN doctors d ON v.doctor_id = d.id
+      ORDER BY p.created_at DESC
+      LIMIT 500
+    `);
+    const agg = await pool.query(`
+      SELECT
+        COALESCE(SUM(amount) FILTER (WHERE status IN ('confirmed','paid')), 0) AS total_collected,
+        COALESCE(SUM(tip)    FILTER (WHERE status IN ('confirmed','paid')), 0) AS total_tips,
+        COUNT(*) FILTER (WHERE status = 'pending')                             AS pending_count
+      FROM payments
+    `);
+    res.json({ rows, summary: agg.rows[0] });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Reviews ────────────────────────────────────────────── */
+
+router.get('/reviews', adminAuth, hasPermission('consultations'), async (req, res) => {
+  const { status, limit = 200, offset = 0 } = req.query;
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (status) { params.push(status); where += ` AND r.status = $${params.length}`; }
+  try {
+    params.push(parseInt(limit), parseInt(offset));
+    const { rows } = await pool.query(`
+      SELECT r.*,
+        COALESCE(vp.name, u.name) AS patient_name,
+        u.phone                   AS patient_phone,
+        d.name                    AS doctor_name
+      FROM reviews r
+      JOIN visits v ON r.visit_id = v.id
+      LEFT JOIN users u ON v.user_id = u.id
+      LEFT JOIN doctors d ON r.doctor_id = d.id
+      LEFT JOIN LATERAL (SELECT name FROM visit_patients WHERE visit_id = v.id LIMIT 1) vp ON true
+      ${where}
+      ORDER BY r.created_at DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+    res.json({ rows });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.post('/reviews/:id/hide', adminAuth, hasPermission('consultations'), async (req, res) => {
+  try {
+    const { rows: [r] } = await pool.query(
+      "UPDATE reviews SET status = 'hidden', moderated_by = $1, moderated_at = NOW() WHERE id = $2 RETURNING id",
+      [req.admin.id, req.params.id]
+    );
+    if (!r) return res.status(404).json({ error: '404' });
+    await logAction(req.admin.id, 'hide_review', 'review', req.params.id);
+    res.json({ message: 'Reseña ocultada.' });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.post('/reviews/:id/restore', adminAuth, hasPermission('consultations'), async (req, res) => {
+  try {
+    const { rows: [r] } = await pool.query(
+      "UPDATE reviews SET status = 'visible', moderated_by = $1, moderated_at = NOW() WHERE id = $2 RETURNING id",
+      [req.admin.id, req.params.id]
+    );
+    if (!r) return res.status(404).json({ error: '404' });
+    await logAction(req.admin.id, 'restore_review', 'review', req.params.id);
+    res.json({ message: 'Reseña restaurada.' });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Coupons ────────────────────────────────────────────── */
+
+router.get('/coupons', adminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM coupons ORDER BY created_at DESC');
+    res.json({ rows });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.post('/coupons', adminAuth, hasPermission('consultations'), async (req, res) => {
+  const { code, description, discount_type, discount_value, max_uses, expires_at } = req.body;
+  if (!code || !discount_value) return res.status(400).json({ error: 'code y discount_value requeridos.' });
+  try {
+    await pool.query(
+      'INSERT INTO coupons (code, description, discount_type, discount_value, max_uses, expires_at, is_active) VALUES ($1,$2,$3,$4,$5,$6,true)',
+      [code.toUpperCase(), description, discount_type || 'percentage', parseFloat(discount_value), max_uses || null, expires_at || null]
+    );
+    await logAction(req.admin.id, 'create_coupon', 'coupon', null, { code });
+    res.json({ message: 'Ok' });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Reports / Exports ──────────────────────────────────── */
+
+router.get('/reports/export', adminAuth, hasPermission('consultations'), async (req, res) => {
+  const { type = 'consultations', date_from, date_to } = req.query;
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (date_from) { params.push(date_from); where += ` AND v.created_at >= $${params.length}::date`; }
+  if (date_to)   { params.push(date_to);   where += ` AND v.created_at <  $${params.length}::date + interval '1 day'`; }
+
+  try {
+    let rows, headers, filename;
+
+    if (type === 'consultations') {
+      ({ rows } = await pool.query(`
+        SELECT
+          v.id, v.status, v.urgency, v.service_type, v.address,
+          TO_CHAR(v.created_at AT TIME ZONE 'America/Lima', 'YYYY-MM-DD HH24:MI') AS fecha,
+          COALESCE(vp.name, u.name) AS paciente,
+          u.phone AS telefono,
+          d.name AS doctor,
+          d.cmp_license AS cmp,
+          p.amount, p.tip,
+          p.method AS metodo_pago,
+          p.status AS estado_pago,
+          r.rating AS calificacion,
+          v.cancel_reason AS motivo_cancelacion
+        FROM visits v
+        LEFT JOIN users u ON v.user_id = u.id
+        LEFT JOIN doctors d ON v.doctor_id = d.id
+        LEFT JOIN LATERAL (SELECT name FROM visit_patients WHERE visit_id = v.id LIMIT 1) vp ON true
+        LEFT JOIN LATERAL (SELECT amount, tip, method, status FROM payments WHERE visit_id = v.id ORDER BY created_at DESC LIMIT 1) p ON true
+        LEFT JOIN reviews r ON r.visit_id = v.id
+        ${where}
+        ORDER BY v.created_at DESC
+        LIMIT 5000
+      `, params));
+      headers = ['id','status','urgency','service_type','address','fecha','paciente','telefono','doctor','cmp','amount','tip','metodo_pago','estado_pago','calificacion','motivo_cancelacion'];
+      filename = 'consultas';
+    } else if (type === 'payouts') {
+      ({ rows } = await pool.query(`
+        SELECT p.id, TO_CHAR(p.created_at AT TIME ZONE 'America/Lima', 'YYYY-MM-DD') AS fecha,
+          p.amount, p.tip,
+          p.method AS metodo, p.status AS estado,
+          u.name AS paciente, d.name AS doctor
+        FROM payments p
+        LEFT JOIN visits v ON p.visit_id = v.id
+        LEFT JOIN users u ON v.user_id = u.id
+        LEFT JOIN doctors d ON v.doctor_id = d.id
+        ${where.replace('v.created_at','p.created_at')}
+        ORDER BY p.created_at DESC
+        LIMIT 5000
+      `, params));
+      headers = ['id','fecha','amount','tip','metodo','estado','paciente','doctor'];
+      filename = 'pagos';
+    } else if (type === 'doctors') {
+      ({ rows } = await pool.query(`
+        SELECT d.id, d.name, d.specialty, d.cmp_license,
+          d.email, d.phone, d.experience_years,
+          d.rating, d.total_reviews, d.is_active, d.is_available,
+          TO_CHAR(d.created_at, 'YYYY-MM-DD') AS alta,
+          COUNT(v.*) AS total_visitas,
+          COUNT(v.*) FILTER (WHERE v.status = 'completed') AS completadas
+        FROM doctors d
+        LEFT JOIN visits v ON v.doctor_id = d.id
+        GROUP BY d.id
+        ORDER BY d.created_at DESC
+      `));
+      headers = ['id','name','specialty','cmp_license','email','phone','experience_years','rating','total_reviews','is_active','is_available','alta','total_visitas','completadas'];
+      filename = 'medicos';
+    } else {
+      return res.status(400).json({ error: 'Tipo inválido. Use: consultations, payouts, doctors' });
+    }
+
+    const now = new Date().toISOString().slice(0, 10);
+    const period = date_from && date_to ? `_${date_from}_${date_to}` : date_from ? `_desde_${date_from}` : '';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}${period}_${now}.csv"`);
+
+    const esc = v => {
+      if (v == null) return '';
+      const s = String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    res.write('﻿'); // UTF-8 BOM for Excel
+    res.write(headers.join(',') + '\n');
+    for (const row of rows) {
+      res.write(headers.map(h => esc(row[h])).join(',') + '\n');
+    }
+    res.end();
+
+    await logAction(req.admin.id, `export_${type}`, 'report', null, { count: rows.length, date_from, date_to });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Live Control — SSE stream ──────────────────────────── */
+
+// In-memory SSE clients registry
+const sseClients = new Set();
+
+function broadcastEvent(event) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(data); } catch { sseClients.delete(client); }
+  }
+}
+
+// Expose so visit/doctor routes can emit events
+router.broadcastEvent = broadcastEvent;
+
+router.get('/live/stream', async (req, res) => {
+  // Auth via query token (SSE can't set headers)
+  const token = req.query.token;
+  if (!token) return res.status(401).end();
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const { rows: [admin] } = await pool.query('SELECT id FROM admins WHERE id = $1 AND is_active = true', [decoded.id]);
+    if (!admin) return res.status(403).end();
+  } catch { return res.status(403).end(); }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  res.write(`data: ${JSON.stringify({ type: 'connected', ts: Date.now() })}\n\n`);
+  sseClients.add(res);
+
+  const heartbeat = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch { clearInterval(heartbeat); }
+  }, 25000);
+
+  req.on('close', () => {
+    sseClients.delete(res);
+    clearInterval(heartbeat);
+  });
+});
+
+/** ── Live Control — Stats & active data ─────────────────── */
+
+router.get('/live/stats', adminAuth, async (req, res) => {
+  try {
+    const [visits, doctors] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM visits WHERE status IN ('pending','matched','on_way','arrived','in_consultation')`),
+      pool.query(`SELECT COUNT(*) FROM doctors WHERE is_available = true AND is_active = true`),
+    ]);
+    res.json({
+      active_visits: parseInt(visits.rows[0].count),
+      online_doctors: parseInt(doctors.rows[0].count),
+    });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.get('/live/visits', adminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT v.id, v.status, v.urgency, v.address, v.created_at, v.user_id, v.doctor_id,
+        COALESCE(vp.name, u.name) AS patient_name, u.phone AS user_phone,
+        d.name AS doctor_name
+      FROM visits v
+      LEFT JOIN users u ON v.user_id = u.id
+      LEFT JOIN doctors d ON v.doctor_id = d.id
+      LEFT JOIN LATERAL (SELECT name FROM visit_patients WHERE visit_id = v.id LIMIT 1) vp ON true
+      WHERE v.status IN ('pending','matched','on_way','arrived','in_consultation')
+      ORDER BY v.created_at DESC
+      LIMIT 100
+    `);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.get('/live/doctors', adminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, name, specialty, phone, is_available, is_active, latitude, longitude, push_token
+      FROM doctors
+      WHERE is_active = true
+      ORDER BY is_available DESC, name ASC
+      LIMIT 200
+    `);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Live Control — Push notifications ──────────────────── */
+
+const { Expo } = (() => { try { return require('expo-server-sdk'); } catch { return { Expo: class { isExpoPushToken() { return false; } async sendPushNotificationsAsync() {} } }; } })();
+const _expo = new Expo();
+
+async function sendPush(token, title, body) {
+  if (!token || !Expo.isExpoPushToken(token)) return false;
+  try {
+    await _expo.sendPushNotificationsAsync([{ to: token, sound: 'default', title, body }]);
+    return true;
+  } catch { return false; }
+}
+
+router.post('/live/push/user/:userId', adminAuth, async (req, res) => {
+  const { title, body } = req.body;
+  if (!title || !body) return res.status(400).json({ error: 'title y body requeridos.' });
+  try {
+    const { rows: [user] } = await pool.query('SELECT push_token FROM users WHERE id = $1', [req.params.userId]);
+    if (!user) return res.status(404).json({ error: '404' });
+    const ok = await sendPush(user.push_token, title, body);
+    await logAction(req.admin.id, 'push_user', 'user', req.params.userId, { title, ok });
+    res.json({ message: ok ? 'Enviado' : 'Sin token push', sent: ok });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.post('/live/push/doctor/:doctorId', adminAuth, async (req, res) => {
+  const { title, body } = req.body;
+  if (!title || !body) return res.status(400).json({ error: 'title y body requeridos.' });
+  try {
+    const { rows: [doc] } = await pool.query('SELECT push_token FROM doctors WHERE id = $1', [req.params.doctorId]);
+    if (!doc) return res.status(404).json({ error: '404' });
+    const ok = await sendPush(doc.push_token, title, body);
+    await logAction(req.admin.id, 'push_doctor', 'doctor', req.params.doctorId, { title, ok });
+    res.json({ message: ok ? 'Enviado' : 'Sin token push', sent: ok });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.post('/live/push/broadcast', adminAuth, async (req, res) => {
+  const { target = 'all', title, body } = req.body;
+  if (!title || !body) return res.status(400).json({ error: 'title y body requeridos.' });
+  try {
+    let tokens = [];
+    if (target === 'all' || target === 'users') {
+      const { rows } = await pool.query('SELECT push_token FROM users WHERE push_token IS NOT NULL');
+      tokens.push(...rows.map(r => r.push_token));
+    }
+    if (target === 'all' || target === 'doctors') {
+      const { rows } = await pool.query('SELECT push_token FROM doctors WHERE push_token IS NOT NULL AND is_active = true');
+      tokens.push(...rows.map(r => r.push_token));
+    }
+    tokens = tokens.filter(t => Expo.isExpoPushToken(t));
+    let sent = 0;
+    for (let i = 0; i < tokens.length; i += 100) {
+      const batch = tokens.slice(i, i + 100).map(to => ({ to, sound: 'default', title, body }));
+      try { await _expo.sendPushNotificationsAsync(batch); sent += batch.length; } catch {}
+    }
+    await logAction(req.admin.id, 'push_broadcast', 'platform', null, { target, title, total: tokens.length, sent });
+    res.json({ message: `Broadcast enviado`, total: tokens.length, sent });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Live Control — Visit actions ───────────────────────── */
+
+router.post('/live/visits/:visitId/cancel', adminAuth, async (req, res) => {
+  const { reason } = req.body;
+  if (!reason) return res.status(400).json({ error: 'Motivo requerido.' });
+  try {
+    const { rows: [visit] } = await pool.query(
+      "UPDATE visits SET status = 'cancelled', cancel_reason = $1 WHERE id = $2 AND status NOT IN ('completed','cancelled') RETURNING id, user_id, doctor_id, push_token",
+      [reason, req.params.visitId]
+    );
+    if (!visit) return res.status(404).json({ error: 'Visita no encontrada o ya finalizada.' });
+
+    // Notify patient
+    if (visit.push_token) await sendPush(visit.push_token, 'Consulta cancelada', `Tu consulta fue cancelada por el equipo. Motivo: ${reason}`);
+
+    // Notify doctor
+    if (visit.doctor_id) {
+      const { rows: [doc] } = await pool.query('SELECT push_token FROM doctors WHERE id = $1', [visit.doctor_id]);
+      if (doc?.push_token) await sendPush(doc.push_token, 'Visita cancelada', 'El equipo canceló una visita asignada.');
+    }
+
+    broadcastEvent({ type: 'visit_cancelled', visitId: visit.id, reason, ts: Date.now(), message: `Visita ${visit.id} cancelada por admin: ${reason}` });
+    await logAction(req.admin.id, 'cancel_visit', 'visit', visit.id, { reason });
+    res.json({ message: 'Visita cancelada.' });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+router.post('/live/visits/:visitId/reassign', adminAuth, async (req, res) => {
+  const { doctorId } = req.body;
+  if (!doctorId) return res.status(400).json({ error: 'doctorId requerido.' });
+  try {
+    const { rows: [visit] } = await pool.query(
+      "UPDATE visits SET doctor_id = $1, status = 'matched' WHERE id = $2 AND status IN ('pending','matched') RETURNING id",
+      [doctorId, req.params.visitId]
+    );
+    if (!visit) return res.status(404).json({ error: '404' });
+    broadcastEvent({ type: 'visit_matched', visitId: visit.id, doctorId, ts: Date.now(), message: `Visita ${visit.id} reasignada` });
+    await logAction(req.admin.id, 'reassign_visit', 'visit', visit.id, { doctorId });
+    res.json({ message: 'Reasignada.' });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
+/** ── Live Control — Doctor toggle ───────────────────────── */
+
+router.post('/live/doctors/:doctorId/toggle', adminAuth, async (req, res) => {
+  try {
+    const { rows: [doc] } = await pool.query(
+      'UPDATE doctors SET is_available = NOT is_available WHERE id = $1 RETURNING id, name, is_available',
+      [req.params.doctorId]
+    );
+    if (!doc) return res.status(404).json({ error: '404' });
+    broadcastEvent({ type: doc.is_available ? 'doctor_online' : 'doctor_offline', doctorId: doc.id, ts: Date.now(), message: `Dr. ${doc.name} ${doc.is_available ? 'activado' : 'pausado'} por admin` });
+    await logAction(req.admin.id, 'toggle_doctor', 'doctor', doc.id, { is_available: doc.is_available });
+    res.json({ message: 'Ok', is_available: doc.is_available });
+  } catch (err) { res.status(500).json({ error: 'Error.' }); }
+});
+
 // SPA fallback — serve admin/index.html for all unmatched GET routes
 const nodePath = require('path');
 const ADMIN_CSP = [
-  "default-src 'none'",
-  "script-src 'self' https://unpkg.com 'unsafe-eval' 'unsafe-inline'",
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob:",
-  "connect-src 'self' https://unpkg.com",
+  "connect-src 'self'",
 ].join('; ');
 
 router.get('*', (req, res) => {
+  const indexPath = nodePath.resolve(__dirname, '../../../web/admin/dist/index.html');
+  const fallback  = nodePath.resolve(__dirname, '../../../web/admin/index.html');
+  const fs = require('fs');
+  const file = fs.existsSync(indexPath) ? indexPath : (fs.existsSync(fallback) ? fallback : null);
+  if (!file) return res.status(404).send('Admin not built. Run: npm run build in web/admin');
   res.setHeader('Content-Security-Policy', ADMIN_CSP);
-  res.sendFile(nodePath.resolve(__dirname, '../../../web/admin/index.html'));
+  res.sendFile(file);
 });
 
 module.exports = router;

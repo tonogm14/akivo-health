@@ -103,15 +103,15 @@ router.post('/',
         }
       }
 
-      const status = 'pending'; // Doctor must explicitly accept
+      const status = doctorId ? 'matched' : 'unmatch';
 
       // Create visit
       const { rows: [visit] } = await client.query(
         `INSERT INTO visits
            (user_id, doctor_id, status, urgency, address, address_ref,
             latitude, longitude, scheduled_at, eta_minutes,
-            doctor_type, specialty_requested, push_token)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            doctor_type, specialty_requested, push_token, price)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING *`,
         [
           req.user.sub, doctorId, status, urgency, address, address_ref || null,
@@ -119,6 +119,7 @@ router.post('/',
           scheduled_at || null, etaMinutes,
           doctor_type, specialty_requested || null,
           push_token || null,
+          req.body.price || 120.00,
         ]
       );
 
@@ -133,12 +134,15 @@ router.post('/',
       // Patient
       await client.query(
         `INSERT INTO visit_patients
-           (visit_id, name, age_group, age, medical_flags, notes)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
+           (visit_id, name, age_group, age, medical_flags, notes, document, has_meds, med_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           visit.id, patient.name, patient.age_group,
           patient.age ? parseInt(patient.age, 10) : null,
           patient.flags || [], patient.notes || null,
+          patient.document || null,
+          patient.has_meds === true,
+          patient.med_name || null,
         ]
       );
 
@@ -173,6 +177,15 @@ router.post('/',
          GROUP BY v.id, d.id, vp.id`,
         [visit.id]
       );
+
+      // Broadcast to admin SSE stream
+      try {
+        const adminRouter = require('./admin');
+        if (adminRouter.broadcastEvent) {
+          adminRouter.broadcastEvent({ type: 'visit_created', visitId: visit.id, urgency: visit.urgency, ts: Date.now(), message: `Nueva visita ${visit.id} · urgencia ${visit.urgency}` });
+        }
+      } catch {}
+
       res.status(201).json(full);
     } catch (err) {
       await client.query('ROLLBACK');
@@ -238,16 +251,17 @@ router.get('/:id',
       const { rows } = await pool.query(
         `SELECT v.*,
            row_to_json(d)  AS doctor,
-           json_agg(vs.symptom_code) AS symptoms,
            row_to_json(vp) AS patient,
-           row_to_json(p)  AS payment
+           row_to_json(p)  AS payment,
+           COALESCE(
+             (SELECT json_agg(vs.symptom_code) FROM visit_symptoms vs WHERE vs.visit_id = v.id),
+             '[]'
+           ) AS symptoms
          FROM visits v
          LEFT JOIN doctors d         ON d.id = v.doctor_id
-         LEFT JOIN visit_symptoms vs ON vs.visit_id = v.id
          LEFT JOIN visit_patients vp ON vp.visit_id = v.id
          LEFT JOIN payments p        ON p.visit_id = v.id
-         WHERE v.id = $1 AND v.user_id = $2
-         GROUP BY v.id, d.id, vp.id, p.id`,
+         WHERE v.id = $1 AND v.user_id = $2`,
         [req.params.id, req.user.sub]
       );
       if (!rows.length) return res.status(404).json({ error: 'Visita no encontrada' });
@@ -264,9 +278,15 @@ router.get('/',
       const { rows } = await pool.query(
         `SELECT v.id, v.status, v.urgency, v.address, v.created_at,
            v.scheduled_at, v.price, v.eta_minutes,
-           d.name AS doctor_name, d.specialty AS doctor_specialty, d.rating AS doctor_rating
+           d.name AS doctor_name, d.specialty AS doctor_specialty, d.rating AS doctor_rating,
+           row_to_json(vp) AS patient,
+           COALESCE(
+             (SELECT json_agg(vs.symptom_code) FROM visit_symptoms vs WHERE vs.visit_id = v.id),
+             '[]'
+           ) AS symptoms
          FROM visits v
          LEFT JOIN doctors d ON d.id = v.doctor_id
+         LEFT JOIN visit_patients vp ON vp.visit_id = v.id
          WHERE v.user_id = $1
          ORDER BY v.created_at DESC
          LIMIT 50`,
@@ -289,12 +309,24 @@ router.patch('/:id/status',
       await client.query('BEGIN');
 
       const { status, cancel_reason } = req.body;
+      let finalStatus = status;
+
+      const { rows: [old] } = await client.query("SELECT status, doctor_id FROM visits WHERE id = $1", [req.params.id]);
+      if (!old) return res.status(404).json({ error: 'Visita no encontrada' });
+
+      // If doctor is being assigned, set status to matched
+      if (status === 'matched' || (status === 'on_way' && !old.doctor_id)) {
+        finalStatus = 'matched';
+      }
 
       const { rows } = await client.query(
-        `UPDATE visits SET status = $1, cancel_reason = COALESCE($2, cancel_reason)
+        `UPDATE visits 
+         SET status = $1, 
+             cancel_reason = COALESCE($2, cancel_reason),
+             matched_at = CASE WHEN $1 = 'matched' AND matched_at IS NULL THEN NOW() ELSE matched_at END
          WHERE id = $3
          RETURNING *`,
-        [status, cancel_reason || null, req.params.id]
+        [finalStatus, cancel_reason || null, req.params.id]
       );
       if (!rows.length) return res.status(404).json({ error: 'Visita no encontrada' });
 
@@ -365,14 +397,14 @@ router.delete('/:id',
   async (req, res, next) => {
     try {
       const { cancel_reason } = req.body;
-      const { rows } = await pool.query(
+      const { rows: updateRows } = await pool.query(
         `UPDATE visits
          SET status = 'cancelled', cancel_fee = 15.00, cancel_reason = $2
          WHERE id = $1 AND user_id = $3 AND status NOT IN ('completed','cancelled')
-         RETURNING id, status, cancel_fee`,
+         RETURNING id, cancel_fee`,
         [req.params.id, cancel_reason || null, req.user.sub]
       );
-      if (!rows.length) return res.status(404).json({ error: 'Visita no encontrada o ya finalizada' });
+      if (!updateRows.length) return res.status(404).json({ error: 'Visita no encontrada o ya finalizada' });
 
       // Free doctor
       await pool.query(
@@ -381,12 +413,28 @@ router.delete('/:id',
         [req.params.id]
       );
 
-      await logEvent(rows[0].id, 'visit_cancelled', 'patient', req.user.sub, {
+      // Fetch full visit to return to client
+      const { rows: [fullVisit] } = await pool.query(
+        `SELECT v.*,
+           d.name AS doctor_name, d.specialty AS doctor_specialty, d.cmp_license AS doctor_cmp, d.experience_years AS doctor_exp,
+           row_to_json(vp) AS patient,
+           COALESCE(
+             (SELECT json_agg(vs.symptom_code) FROM visit_symptoms vs WHERE vs.visit_id = v.id),
+             '[]'
+           ) AS symptoms
+         FROM visits v
+         LEFT JOIN doctors d         ON d.id = v.doctor_id
+         LEFT JOIN visit_patients vp ON vp.visit_id = v.id
+         WHERE v.id = $1`,
+        [req.params.id]
+      );
+
+      await logEvent(fullVisit.id, 'visit_cancelled', 'patient', req.user.sub, {
         reason: cancel_reason || null,
-        cancel_fee: rows[0].cancel_fee,
+        cancel_fee: updateRows[0].cancel_fee,
       });
 
-      res.json(rows[0]);
+      res.json(fullVisit);
     } catch (err) { next(err); }
   }
 );
@@ -628,5 +676,129 @@ router.get('/:id/prescriptions', auth, async (req, res, next) => {
     res.json(rows);
   } catch (err) { next(err); }
 });
+
+// POST /visits/checkout — Atomic Create Visit + Register Payment
+router.post('/checkout',
+  auth,
+  body('visit.urgency').isIn(['now', 'today', 'schedule']),
+  body('visit.address').notEmpty(),
+  body('visit.symptoms').isArray({ min: 1 }),
+  body('payment.method').notEmpty(),
+  validate,
+  async (req, res, next) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const { visit: vData, payment: pData } = req.body;
+      const {
+        urgency, address, address_ref, latitude, longitude,
+        scheduled_at, symptoms, patient,
+        doctor_type = 'general', specialty_requested = null,
+        push_token = null, price = 120.00
+      } = vData;
+
+      // 1. Assign nearest available doctor
+      let doctorId = null;
+      let etaMinutes = null;
+      if (urgency !== 'schedule') {
+        const userLat = parseFloat(latitude) || -12.0648;
+        const userLng = parseFloat(longitude) || -75.2111;
+        const { rows: docs } = await client.query(
+          `SELECT id, latitude, longitude,
+             (6371 * acos(LEAST(GREATEST(
+               cos(radians($1)) * cos(radians(latitude)) *
+               cos(radians(longitude) - radians($2)) +
+               sin(radians($1)) * sin(radians(latitude))
+             , -1), 1))) AS dist_km
+           FROM doctors
+           WHERE is_available = TRUE AND latitude IS NOT NULL
+             AND id NOT IN (
+               SELECT doctor_id FROM visits
+               WHERE doctor_id IS NOT NULL
+                 AND status NOT IN ('completed', 'cancelled')
+                 AND scheduled_at BETWEEN NOW() AND NOW() + INTERVAL '60 minutes'
+             )
+             AND (6371 * acos(LEAST(GREATEST(
+               cos(radians($1)) * cos(radians(latitude)) *
+               cos(radians(longitude) - radians($2)) +
+               sin(radians($1)) * sin(radians(latitude))
+             , -1), 1))) <= 15
+           ORDER BY dist_km
+           LIMIT 1`,
+          [userLat, userLng]
+        );
+        let doc = docs[0];
+        if (!doc && process.env.NODE_ENV !== 'production') {
+          const { rows: marcano } = await client.query(`SELECT id, latitude, longitude FROM doctors WHERE name ILIKE '%Marcano%' LIMIT 1`);
+          doc = marcano[0];
+        }
+        if (doc) {
+          doctorId = doc.id;
+          const distKm = Math.sqrt(Math.pow((doc.latitude-userLat)*111,2) + Math.pow((doc.longitude-userLng)*85,2));
+          etaMinutes = Math.round(distKm / 30 * 60 + 10);
+        }
+      }
+
+      // 2. Create Visit
+      const { rows: [visit] } = await client.query(
+        `INSERT INTO visits
+           (user_id, doctor_id, status, urgency, address, address_ref,
+            latitude, longitude, scheduled_at, eta_minutes,
+            doctor_type, specialty_requested, push_token, price)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         RETURNING *`,
+        [req.user.sub, doctorId, doctorId ? 'matched' : 'unmatch', urgency, address, address_ref || null,
+         latitude || null, longitude || null, scheduled_at || null, etaMinutes,
+         doctor_type, specialty_requested || null, push_token || null, price]
+      );
+
+      // 3. Symptoms
+      for (const code of symptoms) {
+        await client.query(`INSERT INTO visit_symptoms (visit_id, symptom_code) VALUES ($1,$2)`, [visit.id, code]);
+      }
+
+      // 4. Patient
+      await client.query(
+        `INSERT INTO visit_patients (visit_id, name, age_group, age, medical_flags, notes, document, has_meds, med_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          visit.id, patient.name, patient.age_group, 
+          patient.age ? parseInt(patient.age, 10) : null, 
+          patient.flags || [], patient.notes || null,
+          patient.document || null,
+          !!patient.has_meds,
+          patient.med_name || null
+        ]
+      );
+
+      // 5. Register Payment
+      await client.query(
+        `INSERT INTO payments (visit_id, method, amount, status, operation_code)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [visit.id, pData.method, price, 'pending', pData.operation_code || null]
+      );
+
+      await client.query('COMMIT');
+      await logEvent(visit.id, 'visit_requested', 'patient', req.user.sub, { urgency: visit.urgency, address: visit.address });
+      
+      const { rows: [full] } = await pool.query(
+        `SELECT v.*, row_to_json(d) AS doctor, json_agg(vs.symptom_code) AS symptoms, row_to_json(vp) AS patient
+         FROM visits v
+         LEFT JOIN doctors d ON d.id = v.doctor_id
+         LEFT JOIN visit_symptoms vs ON vs.visit_id = v.id
+         LEFT JOIN visit_patients vp ON vp.visit_id = v.id
+         WHERE v.id = $1 GROUP BY v.id, d.id, vp.id`,
+        [visit.id]
+      );
+      res.status(201).json(full);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      next(err);
+    } finally {
+      client.release();
+    }
+  }
+);
 
 module.exports = router;

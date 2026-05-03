@@ -15,6 +15,8 @@
     "mobile:android": "npm run android --workspace=mobile",
     "pro:start": "npm run start    --workspace=mobile-doctor-pro",
     "pro:android": "npm run android  --workspace=mobile-doctor-pro",
+    "admin:dev": "npm run dev   --prefix web/admin",
+    "admin:build": "npm run build --prefix web/admin",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f api"

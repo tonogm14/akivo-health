@@ -48,15 +48,34 @@ export default function HomeScreen({ navigation }) {
   const notifChecked = useRef(false);
 
   useFocusEffect(useCallback(() => {
+    // 1. Load from local cache for immediate feedback
     AsyncStorage.getItem('dh_visits').then(raw => {
       if (raw) setVisits(JSON.parse(raw));
-      else {
-        // backward compat: migrate single dh_last_visit into list
-        AsyncStorage.getItem('dh_last_visit').then(lv => {
-          if (lv) setVisits([JSON.parse(lv)]);
-        }).catch(() => {});
-      }
     }).catch(() => { });
+
+    // 2. Fetch live data from server
+    if (state.authToken) {
+      fetch(`${API_BASE}/users/me/visits`, {
+        headers: { 'Authorization': `Bearer ${state.authToken}` }
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          const mapped = data.map(v => ({
+            ...v,
+            id: v.id,
+            status: v.status,
+            doctorName: v.doctor_name,
+            doctorSpec: v.doctor_specialty || v.specialty,
+            visitDate: v.created_at,
+            address: v.address
+          }));
+          setVisits(mapped);
+          AsyncStorage.setItem('dh_visits', JSON.stringify(mapped));
+        }
+      })
+      .catch(err => console.log('[HomeScreen] Fetch visits error:', err));
+    }
 
     if (!notifChecked.current && Device.isDevice) {
       notifChecked.current = true;
@@ -65,7 +84,7 @@ export default function HomeScreen({ navigation }) {
         if (status !== 'granted') setShowNotifModal(true);
       }, 800);
     }
-  }, []));
+  }, [state.authToken]));
 
   useEffect(() => {
     fetch(`${API_BASE}/demo/services`)
@@ -119,7 +138,7 @@ export default function HomeScreen({ navigation }) {
         <View style={s.ctaWrap}>
           <TouchableOpacity style={s.cta} onPress={() => {
             setState({ ...state, serviceType: 'doctor_visit', selectedInjectable: null, symptoms: [], patient: {}, doctorType: null, specialtyRequested: null });
-            navigation.navigate('Symptoms');
+            navigation.navigate('Location');
           }} activeOpacity={0.9}>
             <View>
               <Text style={s.ctaTitle}>Pedir un doctor</Text>
@@ -152,7 +171,10 @@ export default function HomeScreen({ navigation }) {
               icon="monitor"
               title="Telemedicina"
               sub="Videollamada"
-              soon
+              onPress={() => {
+                setState(st => ({ ...st, serviceType: 'telemedicine', doctorType: 'general' }));
+                setShowDoctorModal(true);
+              }}
             />
           </View>
         </View>
@@ -174,13 +196,16 @@ export default function HomeScreen({ navigation }) {
             </Card>
           ) : (
             <View style={{ gap: 8 }}>
-              {visits.slice(0, 5).map((v, i) => (
-                <VisitCard
-                  key={i}
-                  visit={v}
-                  onPress={() => navigation.navigate('VisitDetail', { visit: v })}
-                />
-              ))}
+              {visits
+                .slice(0, 5)
+                .map((v, i) => (
+                  <VisitCard
+                    key={i}
+                    visit={v}
+                    onPress={() => navigation.navigate('VisitDetail', { visit: v })}
+                    navigation={navigation}
+                  />
+                ))}
               {visits.length > 5 && (
                 <TouchableOpacity style={s.seeAllBtn} onPress={() => navigation.navigate('VisitList')}>
                   <Text style={s.seeAllBtnText}>Ver todas las visitas ({visits.length})</Text>
@@ -330,6 +355,7 @@ export default function HomeScreen({ navigation }) {
 
 const STATUS_LABELS = {
   pending:   { label: 'Pendiente',  color: C.amber },
+  unmatch:   { label: 'Buscando médico', color: C.amber },
   matched:   { label: 'Asignado',   color: C.blue  },
   on_way:    { label: 'En camino',  color: C.blue  },
   arrived:   { label: 'Llegó',      color: C.green },
@@ -337,10 +363,15 @@ const STATUS_LABELS = {
   cancelled: { label: 'Cancelada',  color: C.red   },
 };
 
-function VisitCard({ visit, onPress }) {
+function VisitCard({ visit, onPress, navigation }) {
   const si = STATUS_LABELS[visit.status] ?? { label: 'Pendiente', color: C.amber };
+  
   return (
-    <TouchableOpacity style={s.visitCard} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity 
+      style={s.visitCard} 
+      onPress={onPress} 
+      activeOpacity={0.8}
+    >
       <Avatar name={visit.doctorName || 'D'} size={44} />
       <View style={{ flex: 1 }}>
         <Text style={s.visitDrName}>Dr. {visit.doctorName || '—'}</Text>
@@ -466,6 +497,11 @@ const s = StyleSheet.create({
   visitMeta:      { fontSize: 12, color: C.inkSoft, marginTop: 2 },
   visitBadge:     { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
   visitBadgeText: { fontSize: 11, fontWeight: '700' },
+  payNowBtn: {
+    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+    backgroundColor: C.amber,
+  },
+  payNowText: { fontSize: 12, fontWeight: '700', color: '#fff' },
   seeAllBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 4, padding: 12, borderRadius: 12,

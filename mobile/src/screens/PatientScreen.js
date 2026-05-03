@@ -28,7 +28,7 @@ export default function PatientScreen({ navigation }) {
     p.hasMeds !== undefined &&
     (p.hasMeds === true || (p.hasMeds === false && p.medName?.trim()))
   );
-  const ready = p.name && p.ageGroup && (p.ageGroup !== 'other' || (p.age && parseInt(p.age, 10) >= 0)) && injectableReady;
+  const ready = p.name?.trim() && p.document?.trim() && p.ageGroup && (p.ageGroup !== 'other' || (p.age && parseInt(p.age, 10) >= 0)) && injectableReady;
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -47,6 +47,16 @@ export default function PatientScreen({ navigation }) {
           value={p.name || ''}
           onChangeText={v => upd('name', v)}
           placeholder="Ej. María Quispe"
+          style={{ marginBottom: 16 }}
+        />
+
+        <Label>DNI o Carnet de Extranjería</Label>
+        <Input
+          value={p.document || ''}
+          onChangeText={v => upd('document', v.replace(/[^0-9]/g, ''))}
+          placeholder="Nº de documento"
+          keyboardType="number-pad"
+          maxLength={12}
           style={{ marginBottom: 16 }}
         />
 
@@ -163,8 +173,8 @@ export default function PatientScreen({ navigation }) {
       </ScrollView>
       </KeyboardAvoidingView>
       <BottomBar>
-        <PrimaryButton disabled={!ready} onPress={() => navigation.navigate('Payment')}>
-          Continuar al pago
+        <PrimaryButton disabled={!ready} onPress={() => navigation.navigate('Symptoms')}>
+          Continuar
         </PrimaryButton>
       </BottomBar>
     </SafeAreaView>

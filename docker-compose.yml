@@ -59,6 +59,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./api/src:/app/src
     develop:
       watch:
         - action: sync

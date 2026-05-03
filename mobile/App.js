@@ -23,6 +23,7 @@ import InjectableScreen from './src/screens/InjectableScreen';
 import VisitHistoryDetailScreen from './src/screens/VisitHistoryDetailScreen';
 import VisitListScreen from './src/screens/VisitListScreen';
 import PhoneVerificationScreen from './src/screens/PhoneVerificationScreen';
+import ChatScreen from './src/screens/ChatScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -55,6 +56,7 @@ export default function App() {
             <Stack.Screen name="VisitDetail" component={VisitHistoryDetailScreen} />
             <Stack.Screen name="VisitList" component={VisitListScreen} />
             <Stack.Screen name="PhoneVerification" component={PhoneVerificationScreen} />
+            <Stack.Screen name="Chat" component={ChatScreen} />
           </Stack.Navigator>
         </NavigationContainer>
       </AppProvider>

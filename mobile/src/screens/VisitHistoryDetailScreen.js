@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../theme';
 import { TopBar, BottomBar, PrimaryButton, SecondaryButton, Avatar } from '../components';
 import { API_BASE } from '../config';
+import * as API from '../api';
+import { useApp } from '../AppContext';
 
 const AGE_LABELS = {
   baby: 'Bebé (<2 años)',
@@ -38,13 +40,61 @@ const STATUS_LABELS = {
   cancelled: { label: 'Cancelada',   color: C.red },
 };
 
+const SYMPTOM_LABELS = {
+  fever: 'Fiebre',
+  flu: 'Gripe / resfrío',
+  head: 'Dolor de cabeza',
+  stomach: 'Estómago',
+  throat: 'Dolor de Garganta',
+  body: 'Dolor muscular',
+  cough: 'Tos',
+  malaise: 'Malestar general',
+  fatigue: 'Fatiga / cansancio',
+  nausea: 'Náuseas o vómitos',
+  diarrhea: 'Diarrea',
+  constipation: 'Estreñimiento',
+  other: 'Otro',
+};
+
 export default function VisitHistoryDetailScreen({ navigation, route }) {
-  const visit = route.params?.visit ?? {};
+  const { state } = useApp();
+  const [visit, setVisit] = useState(route.params?.visit ?? {});
+  const [loading, setLoading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [showRx, setShowRx] = useState(false);
 
   const statusInfo = STATUS_LABELS[visit.status] ?? { label: visit.status, color: C.inkSoft };
   const canCancel = !['completed', 'cancelled'].includes(visit.status);
+  const isLive = ['matched', 'on_way', 'arrived', 'in_consultation'].includes(visit.status);
+  const isCompleted = visit.status === 'completed';
+  const hasRx = !!visit.has_prescription;
+
+  // Robust data accessors
+  const doctorName = visit.doctor_name || visit.doctor?.name || visit.doctorName || '—';
+  const doctorSpec = visit.doctor_specialty || visit.doctor?.specialty || visit.specialty || visit.doctorSpec || 'Medicina General';
+  const doctorCmp  = visit.doctor_cmp || visit.doctor?.cmp_license || visit.doctorCmp;
+  const doctorExp  = visit.doctor_exp || visit.doctor?.experience_years || visit.doctorExp;
+
+  useEffect(() => {
+    // Fetch fresh data for this visit to ensure symptoms/patient are loaded
+    const fetchFresh = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch(`${API_BASE}/visits/${visit.id}`, {
+          headers: { 'Authorization': `Bearer ${state.authToken}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setVisit(data);
+        }
+      } catch (err) {
+        console.log('[Detail] Fetch fresh error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (visit.id) fetchFresh();
+  }, [visit.id]);
 
   const onCancel = () => {
     Alert.alert(
@@ -57,16 +107,21 @@ export default function VisitHistoryDetailScreen({ navigation, route }) {
           onPress: async () => {
             setCancelling(true);
             try {
-              const res = await fetch(`${API_BASE}/visits/${visit.id}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cancel_reason: 'Cancelado por el usuario' }),
-              });
-              if (!res.ok) throw new Error('No se pudo cancelar');
+              const updatedVisit = await API.visits.cancel(visit.id, 'Cancelado por el usuario');
+              setVisit(updatedVisit);
 
-              // Update AsyncStorage with cancelled status
-              const updated = { ...visit, status: 'cancelled' };
-              await AsyncStorage.setItem('dh_last_visit', JSON.stringify(updated));
+              // Update local history status
+              const existingRaw = await AsyncStorage.getItem('dh_visits');
+              if (existingRaw) {
+                const allVisits = JSON.parse(existingRaw);
+                const idx = allVisits.findIndex(v => v.id === visit.id);
+                if (idx >= 0) {
+                  allVisits[idx] = updatedVisit;
+                  await AsyncStorage.setItem('dh_visits', JSON.stringify(allVisits));
+                }
+              }
+
+              // Update local state if needed (or just go back and refresh)
               Alert.alert('Visita cancelada', 'Tu visita fue cancelada correctamente.', [
                 { text: 'OK', onPress: () => navigation.goBack() },
               ]);
@@ -83,58 +138,151 @@ export default function VisitHistoryDetailScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
-      <TopBar onBack={() => navigation.goBack()} title="Detalle de la visita" />
+      <TopBar 
+        onBack={() => navigation.goBack()} 
+        title="Detalle de la visita" 
+        rightIcon={isLive ? 'message-circle' : null}
+        onRightPress={isLive ? () => navigation.navigate('Chat', { visitId: visit.id, doctorName: visit.doctorName }) : null}
+      />
       <ScrollView style={s.scroll} contentContainerStyle={s.content}>
+
+        {/* Refund Notice for cancelled visits */}
+        {visit.status === 'cancelled' && (
+          <View style={s.refundBanner}>
+            <View style={s.refundIcon}>
+              <Feather name="refresh-cw" size={20} color={C.amber} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.refundTitle}>Proceso de reembolso</Text>
+              <Text style={s.refundText}>
+                Se ha aplicado un cargo de S/ 15 por el traslado del doctor. El saldo restante será devuelto a tu cuenta en un lapso de 4 días hábiles.
+              </Text>
+              {visit.payment?.refund_status === 'completed' ? (
+                <View style={s.refundStatusBox}>
+                  <Text style={s.refundStatusTitle}>✅ Dinero devuelto</Text>
+                  <Text style={s.refundStatusText}>
+                    El reembolso ha sido procesado con éxito.
+                  </Text>
+                  {!!visit.payment?.refund_transaction_id && (
+                    <Text style={s.refundOp}>ID Operación: {visit.payment.refund_transaction_id}</Text>
+                  )}
+                </View>
+              ) : (
+                <View style={s.refundStatusBox}>
+                  <Text style={[s.refundStatusTitle, { color: C.amber }]}>⏳ Reembolso en proceso</Text>
+                  <Text style={s.refundStatusText}>
+                    Estamos procesando la devolución del saldo.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Doctor */}
         <View style={s.doctorCard}>
-          <Avatar name={visit.doctorName || 'D'} size={52} ring={C.blue} />
+          <Avatar name={doctorName} size={60} ring={C.blue} />
           <View style={{ flex: 1 }}>
-            <Text style={s.doctorName}>Dr. {visit.doctorName || '—'}</Text>
-            <Text style={s.doctorSpec}>{visit.doctorSpec || 'Medicina General'}</Text>
-            {visit.doctorRating != null && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <Feather name="star" size={12} color="#F5A623" />
-                <Text style={s.doctorRating}>{visit.doctorRating}</Text>
-              </View>
-            )}
+            <Text style={s.doctorName}>Dr. {doctorName}</Text>
+            <Text style={s.doctorSpec}>{doctorSpec}</Text>
+            
+            <View style={[s.statusBadge, { backgroundColor: statusInfo.color + '20', alignSelf: 'flex-start', marginTop: 8 }]}>
+              <Text style={[s.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
+            </View>
           </View>
-          <View style={[s.statusBadge, { backgroundColor: statusInfo.color + '20' }]}>
-            <Text style={[s.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
-          </View>
+          {isLive && (
+            <TouchableOpacity 
+              onPress={() => navigation.navigate('Chat', { visitId: visit.id, doctorName: doctorName })}
+              style={s.contactBtn}
+            >
+              <Feather name="message-circle" size={24} color="#0F6B34" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Details */}
         <View style={s.detailBox}>
-          <DetailRow icon="calendar"    label="Fecha"       value={formatDate(visit.visitDate)} />
-          <DetailRow icon="map-pin"     label="Dirección"   value={visit.address || '—'} />
-          {!!visit.ref && <DetailRow icon="info" label="Referencia" value={visit.ref} />}
-          <DetailRow icon="activity"    label="Síntomas"    value={(visit.symptoms || []).join(', ') || '—'} />
-          <DetailRow icon="user"        label="Paciente"    value={visit.patient?.name || '—'} />
-          <DetailRow icon="users"       label="Edad"        value={AGE_LABELS[visit.patient?.ageGroup] || visit.patient?.ageGroup || '—'} />
-          {visit.patient?.age ? <DetailRow icon="hash" label="Edad exacta" value={`${visit.patient.age} años`} /> : null}
-          {(visit.patient?.flags || []).filter(f => f !== 'Ninguna').length > 0 && (
-            <DetailRow icon="alert-circle" label="Antecedentes" value={(visit.patient.flags || []).join(', ')} />
+          {loading ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <ActivityIndicator color={C.blue} />
+              <Text style={{ fontSize: 12, color: C.inkSoft, marginTop: 8 }}>Actualizando información...</Text>
+            </View>
+          ) : (
+            <>
+              <DetailRow icon="calendar"    label="Fecha"       value={formatDate(visit.created_at || visit.visitDate)} />
+              <DetailRow icon="map-pin"     label="Dirección"   value={visit.address || '—'} />
+              {!!(visit.address_ref || visit.ref) && <DetailRow icon="info" label="Referencia" value={visit.address_ref || visit.ref} />}
+              <DetailRow 
+                icon="activity"    
+                label="Síntomas"    
+                value={(() => {
+                  const syms = visit.symptoms || [];
+                  if (!Array.isArray(syms) || syms.length === 0) return '—';
+                  return syms.map(s => {
+                    if (typeof s !== 'string') return '';
+                    if (s.startsWith('other:')) return s.replace('other:', '');
+                    return SYMPTOM_LABELS[s] || s;
+                  }).filter(Boolean).join(', ');
+                })()} 
+              />
+              <DetailRow icon="user"        label="Paciente"    value={visit.patient?.name || state.patient?.name || '—'} />
+              <DetailRow 
+                icon="credit-card" 
+                label="DNI/CE" 
+                value={visit.patient?.document || state.patient?.document || visit.patient?.document_id || 'No registrado'} 
+              />
+              <DetailRow icon="users"       label="Edad"        value={AGE_LABELS[visit.patient?.age_group || visit.patient?.ageGroup || state.patient?.ageGroup] || visit.patient?.age_group || visit.patient?.ageGroup || state.patient?.ageGroup || '—'} />
+              {(visit.patient?.age || state.patient?.age) ? <DetailRow icon="hash" label="Edad exacta" value={`${visit.patient.age || state.patient.age} años`} /> : null}
+              {(visit.patient?.has_meds !== undefined || state.patient?.hasMeds !== undefined) && (
+                <DetailRow 
+                  icon="shopping-bag" 
+                  label="Inyectables" 
+                  value={(visit.patient?.has_meds ?? state.patient?.hasMeds) ? 'Paciente ya los tiene' : `Médico trae: ${visit.patient?.med_name || state.patient?.medName || 'Inyectable'}`} 
+                />
+              )}
+              {((visit.patient?.medical_flags || visit.patient?.flags || state.patient?.flags || []).filter(f => f !== 'Ninguna').length > 0) && (
+                <DetailRow icon="alert-circle" label="Antecedentes" value={(visit.patient?.medical_flags || visit.patient?.flags || state.patient?.flags || []).join(', ')} />
+              )}
+              {(visit.patient?.notes || state.patient?.notes) ? <DetailRow icon="file-text" label="Notas" value={visit.patient?.notes || state.patient?.notes} /> : null}
+              <DetailRow icon="star"        label="Tipo Médico" value={visit.doctor_type === 'specialist' ? 'Especialista' : 'Médico General'} />
+              {!!visit.specialty_requested && <DetailRow icon="award" label="Especialidad" value={visit.specialty_requested} />}
+              <DetailRow icon="clock"       label="Urgencia"    value={URGENCY_LABELS[visit.urgency] || visit.urgency || '—'} />
+              <DetailRow 
+                icon="credit-card" 
+                label="Método pago" 
+                value={PAYMENT_LABELS[visit.payment?.method || visit.payment_method || visit.payment] || visit.payment?.method || visit.payment_method || '—'} 
+              />
+              <DetailRow icon="dollar-sign" label="Total"       value={`S/ ${visit.price || visit.amount || '120.00'}`} />
+              {!!(visit.doctor_cmp || visit.doctorCmp) && <DetailRow icon="shield" label="Colegiatura" value={visit.doctor_cmp || visit.doctorCmp} />}
+              {(visit.doctor_exp != null || visit.doctorExp != null) && <DetailRow icon="award" label="Experiencia" value={`${visit.doctor_exp || visit.doctorExp} años`} />}
+            </>
           )}
-          {!!visit.patient?.notes && <DetailRow icon="file-text" label="Notas" value={visit.patient.notes} />}
-          <DetailRow icon="clock"       label="Urgencia"    value={URGENCY_LABELS[visit.urgency] || visit.urgency || '—'} />
-          <DetailRow icon="credit-card" label="Método pago" value={PAYMENT_LABELS[visit.payment] || visit.payment || '—'} />
-          <DetailRow icon="dollar-sign" label="Total"       value="S/ 120.00" />
-          {!!visit.doctorCmp && <DetailRow icon="shield" label="Colegiatura" value={visit.doctorCmp} />}
-          {visit.doctorExp != null && <DetailRow icon="award" label="Experiencia" value={`${visit.doctorExp} años`} />}
         </View>
 
-        {/* Prescription button */}
-        <TouchableOpacity style={s.rxBtn} onPress={() => setShowRx(true)}>
-          <View style={s.rxBtnIcon}>
-            <Feather name="file-text" size={18} color={C.blue} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.rxBtnTitle}>Ver receta médica</Text>
-            <Text style={s.rxBtnSub}>Receta emitida por el doctor al finalizar la visita</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={C.inkMuted} />
-        </TouchableOpacity>
+        {/* Live Tracking Button */}
+        {isLive && (
+          <PrimaryButton 
+            onPress={() => navigation.navigate('Tracking', { visitId: visit.id })}
+            style={{ marginTop: 10 }}
+          >
+            Seguir al doctor en vivo
+          </PrimaryButton>
+        )}
+
+        {/* Prescription button - only if has prescription */}
+        {hasRx && (
+          <TouchableOpacity style={s.rxBtn} onPress={() => setShowRx(true)}>
+            <View style={s.rxBtnIcon}>
+              <Feather name="file-text" size={18} color={C.blue} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rxBtnTitle}>Ver receta médica</Text>
+              <Text style={s.rxBtnSub}>Receta emitida por el doctor al finalizar la visita</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={C.inkMuted} />
+          </TouchableOpacity>
+        )}
+
 
       </ScrollView>
 
@@ -166,11 +314,11 @@ export default function VisitHistoryDetailScreen({ navigation, route }) {
             </View>
             <View style={s.rxRow}>
               <Text style={s.rxLabel}>Doctor</Text>
-              <Text style={s.rxVal}>Dr. {visit.doctorName || '—'}</Text>
+              <Text style={s.rxVal}>Dr. {doctorName}</Text>
             </View>
             <View style={s.rxRow}>
               <Text style={s.rxLabel}>Fecha</Text>
-              <Text style={s.rxVal}>{formatDate(visit.visitDate)}</Text>
+              <Text style={s.rxVal}>{formatDate(visit.created_at || visit.visitDate)}</Text>
             </View>
 
             <View style={s.rxDivider} />
@@ -199,9 +347,9 @@ export default function VisitHistoryDetailScreen({ navigation, route }) {
             <View style={s.rxDivider} />
             <View style={s.rxSigRow}>
               <View style={s.rxSigLine} />
-              <Text style={s.rxSigName}>Dr. {visit.doctorName || 'Médico Tratante'}</Text>
-              <Text style={s.rxSigSpec}>{visit.doctorSpec || 'Medicina General'}</Text>
-              {!!visit.doctorCmp && <Text style={s.rxSigCmp}>{visit.doctorCmp}</Text>}
+              <Text style={s.rxSigName}>Dr. {doctorName}</Text>
+              <Text style={s.rxSigSpec}>{doctorSpec}</Text>
+              {!!doctorCmp && <Text style={s.rxSigCmp}>{doctorCmp}</Text>}
             </View>
 
             <View style={s.rxDemoNotice}>
@@ -221,14 +369,11 @@ export default function VisitHistoryDetailScreen({ navigation, route }) {
           >
             {cancelling ? 'Cancelando...' : 'Cancelar visita · cargo S/ 15'}
           </PrimaryButton>
-          <SecondaryButton style={{ marginTop: 10 }} onPress={() => navigation.navigate('Reorder')}>
-            Pedir otra vez
-          </SecondaryButton>
         </BottomBar>
       )}
-      {!canCancel && (
+      {isCompleted && (
         <BottomBar>
-          <PrimaryButton onPress={() => navigation.navigate('Reorder')}>
+          <PrimaryButton onPress={() => navigation.navigate('Reorder', { visitId: visit.id })}>
             Pedir otra vez
           </PrimaryButton>
         </BottomBar>
@@ -250,6 +395,7 @@ function DetailRow({ icon, label, value }) {
 function formatDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
   const months = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   return `${d.getDate()} de ${months[d.getMonth()]}`;
 }
@@ -327,4 +473,45 @@ const s = StyleSheet.create({
     backgroundColor: C.bg, borderRadius: 10, padding: 12, marginTop: 16,
   },
   rxDemoText: { fontSize: 11.5, color: C.inkMuted, flex: 1, lineHeight: 16 },
+  refundBanner: {
+    flexDirection: 'row', gap: 14, padding: 18,
+    backgroundColor: C.amber + '15',
+    borderRadius: 20, borderWidth: 1, borderColor: C.amber + '30',
+    marginBottom: 20,
+  },
+  refundIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: C.amber, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 4, elevation: 2,
+  },
+  refundTitle: { fontSize: 16, fontWeight: '700', color: C.ink, marginBottom: 4 },
+  refundText:  { fontSize: 13, color: C.inkSoft, lineHeight: 18 },
+  refundStatusBox: {
+    marginTop: 12, padding: 12, borderRadius: 12,
+    backgroundColor: '#fff',
+  },
+  refundStatusTitle: { fontSize: 14, fontWeight: '700', color: C.green },
+  refundStatusText:  { fontSize: 12, color: C.inkSoft, marginTop: 2 },
+  refundOp: { fontSize: 11, fontWeight: '600', color: C.inkSoft, marginTop: 6, fontStyle: 'italic' },
+  patientMain: { marginBottom: 12 },
+  patientDoc: { fontSize: 13, color: C.inkSoft, marginTop: 2 },
+  medsBox: {
+    flexDirection: 'row', gap: 8, alignItems: 'center',
+    backgroundColor: C.blueSoft + '55', padding: 10, borderRadius: 10,
+    marginTop: 12,
+  },
+  medsText: { fontSize: 13, color: C.blueDark, fontWeight: '600', flex: 1 },
+  notesBox: {
+    marginTop: 12, padding: 12, borderRadius: 12,
+    backgroundColor: C.bg, borderLeftWidth: 3, borderLeftColor: C.lineStrong,
+  },
+  notesLabel: { fontSize: 12, fontWeight: '700', color: C.inkMuted, marginBottom: 4 },
+  notesText:  { fontSize: 13, color: C.inkSoft, fontStyle: 'italic' },
+  contactBtn: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: '#E8F8EA',
+    alignItems: 'center', justifyContent: 'center',
+  },
 });
