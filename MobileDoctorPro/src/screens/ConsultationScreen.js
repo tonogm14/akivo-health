@@ -16,7 +16,7 @@ function TopBar({ title, subtitle, onBack }) {
       </TouchableOpacity>
       <View style={{ flex: 1, alignItems: 'center' }}>
         <Text style={tb.title}>{title}</Text>
-        {subtitle && <Text style={tb.sub}>{subtitle}</Text>}
+        {!!subtitle && <Text style={tb.sub}>{subtitle}</Text>}
       </View>
       <View style={{ width: 40 }} />
     </View>
@@ -194,8 +194,7 @@ function NotesAndPlanPanel({ notes, setNotes, recommendations, setRecommendation
           placeholderTextColor={C.inkMuted}
           multiline
           numberOfLines={6}
-          textAlignVertical="top"
-          style={dx.notesInput}
+          style={[dx.notesInput, { textAlignVertical: 'top' }]}
         />
         <Text style={[sy.label, { marginTop: 10 }]}>PLANTILLAS RÁPIDAS</Text>
         {[

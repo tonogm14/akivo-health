@@ -18,7 +18,7 @@ function StarRating({ value, onChange }) {
   return (
     <View style={{ flexDirection: 'row', gap: 6 }}>
       {[1, 2, 3, 4, 5].map(n => (
-        <TouchableOpacity key={n} onPress={() => onChange(n)} activeOpacity={0.65} hitSlop={6}>
+        <TouchableOpacity key={n} onPress={() => onChange(n)} activeOpacity={0.65} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
           <Text style={{ fontSize: 28, color: n <= value ? C.amber : C.lineStrong }}>
             {n <= value ? '★' : '☆'}
           </Text>
@@ -127,8 +127,7 @@ export default function PatientReviewScreen({ navigation }) {
             placeholderTextColor={C.inkMuted}
             multiline
             numberOfLines={4}
-            textAlignVertical="top"
-            style={pr.commentInput}
+            style={[pr.commentInput, { textAlignVertical: 'top' }]}
           />
         </View>
 

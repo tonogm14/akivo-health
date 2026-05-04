@@ -38,6 +38,7 @@ router.post('/',
         scheduled_at, symptoms, patient,
         doctor_type = 'general', specialty_requested = null,
         push_token = null,
+        service_type = 'doctor_visit',
       } = req.body;
 
       // Assign nearest available doctor
@@ -110,8 +111,8 @@ router.post('/',
         `INSERT INTO visits
            (user_id, doctor_id, status, urgency, address, address_ref,
             latitude, longitude, scheduled_at, eta_minutes,
-            doctor_type, specialty_requested, push_token, price)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            doctor_type, specialty_requested, push_token, price, service_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING *`,
         [
           req.user.sub, doctorId, status, urgency, address, address_ref || null,
@@ -120,6 +121,8 @@ router.post('/',
           doctor_type, specialty_requested || null,
           push_token || null,
           req.body.price || 120.00,
+          ['doctor_visit', 'injectable', 'telemedicine'].includes(service_type)
+            ? service_type : 'doctor_visit',
         ]
       );
 
@@ -211,6 +214,7 @@ router.get('/pending-for-doctor/:doctorId',
       const { rows } = await pool.query(
         `SELECT v.id, v.status, v.urgency, v.address, v.address_ref,
                 v.latitude, v.longitude, v.eta_minutes, v.created_at,
+                v.service_type,
                 row_to_json(vp) AS patient,
                 COALESCE(json_agg(vs.symptom_code) FILTER (WHERE vs.symptom_code IS NOT NULL), '[]') AS symptoms
          FROM visits v
@@ -239,6 +243,91 @@ router.get('/:id/timeline', auth, async (req, res, next) => {
     );
     res.json(rows);
   } catch (err) { next(err); }
+});
+
+// GET /visits/:id/room — get or lazily create Daily.co room for a telemedicine visit
+router.get('/:id/room', auth, param('id').isUUID(), validate, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const { rows: [visit] } = await pool.query(
+      `SELECT id, service_type, user_id, daily_room_url, daily_room_name FROM visits WHERE id = $1`,
+      [id]
+    );
+    if (!visit) return res.status(404).json({ error: 'Visita no encontrada' });
+    if (visit.service_type !== 'telemedicine') {
+      return res.status(400).json({ error: 'Esta visita no es de tipo telemedicina' });
+    }
+    if (!process.env.DAILY_API_KEY) {
+      return res.status(503).json({ error: 'Servicio de videollamada no configurado' });
+    }
+
+    const { createRoom, createMeetingToken } = require('../services/daily');
+
+    let roomUrl  = visit.daily_room_url;
+    let roomName = visit.daily_room_name;
+
+    // Lazily create the Daily room the first time it's requested
+    if (!roomUrl) {
+      const room = await createRoom(id);
+      roomUrl  = room.url;
+      roomName = room.name;
+      await pool.query(
+        `UPDATE visits SET daily_room_url = $1, daily_room_name = $2 WHERE id = $3`,
+        [roomUrl, roomName, id]
+      );
+    }
+
+    // Mint a short-lived meeting token for the patient (not owner)
+    const token    = await createMeetingToken(roomName, false);
+    const joinUrl  = `${roomUrl}?t=${token}`;
+
+    res.json({ room_url: roomUrl, room_name: roomName, token, join_url: joinUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /visits/:id/room/doctor — get or lazily create Daily.co room, returns owner token for doctor
+router.get('/:id/room/doctor', devPassthrough, param('id').isUUID(), validate, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const { rows: [visit] } = await pool.query(
+      `SELECT id, service_type, daily_room_url, daily_room_name FROM visits WHERE id = $1`,
+      [id]
+    );
+    if (!visit) return res.status(404).json({ error: 'Visita no encontrada' });
+    if (visit.service_type !== 'telemedicine') {
+      return res.status(400).json({ error: 'Esta visita no es de tipo telemedicina' });
+    }
+    if (!process.env.DAILY_API_KEY) {
+      return res.status(503).json({ error: 'Servicio de videollamada no configurado' });
+    }
+
+    const { createRoom, createMeetingToken } = require('../services/daily');
+
+    let roomUrl  = visit.daily_room_url;
+    let roomName = visit.daily_room_name;
+
+    if (!roomUrl) {
+      const room = await createRoom(id);
+      roomUrl  = room.url;
+      roomName = room.name;
+      await pool.query(
+        `UPDATE visits SET daily_room_url = $1, daily_room_name = $2 WHERE id = $3`,
+        [roomUrl, roomName, id]
+      );
+    }
+
+    // Doctor gets an owner token (can mute/remove participants, end meeting for all)
+    const token   = await createMeetingToken(roomName, true);
+    const joinUrl = `${roomUrl}?t=${token}`;
+
+    res.json({ room_url: roomUrl, room_name: roomName, token, join_url: joinUrl });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /visits/:id

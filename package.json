@@ -8,6 +8,7 @@
     "MobileDoctorPro"
   ],
   "scripts": {
+    "postinstall": "patch-package",
     "api:dev": "npm run dev      --workspace=api",
     "api:start": "npm run start    --workspace=api",
     "db:migrate": "npm run migrate  --workspace=api",
@@ -20,5 +21,8 @@
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f api"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }

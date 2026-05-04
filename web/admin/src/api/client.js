@@ -38,6 +38,7 @@ export const api = {
   doctors: () => req('GET', '/doctors'),
   doctor: (id) => req('GET', `/doctors/${id}`),
   doctorStats: (id) => req('GET', `/doctors/${id}/stats`),
+  createDoctor: (data) => req('POST', '/doctors', data),
   deactivateDoctor: (id, reason) => req('POST', `/doctors/${id}/deactivate`, { reason }),
 
   // Consultations
@@ -105,12 +106,12 @@ export const api = {
 // SSE stream for live updates
 export function createLiveStream(onEvent) {
   const t = token();
-  if (!t) return () => {};
+  if (!t) return () => { };
   const url = `${BASE}/live/stream?token=${encodeURIComponent(t)}`;
   const es = new EventSource(url);
   es.onmessage = (e) => {
-    try { onEvent(JSON.parse(e.data)); } catch {}
+    try { onEvent(JSON.parse(e.data)); } catch { }
   };
-  es.onerror = () => {};
+  es.onerror = () => { };
   return () => es.close();
 }

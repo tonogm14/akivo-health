@@ -41,6 +41,16 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Admin SPA (Vite build output) — must be before the generic web static
+const adminDist = path.join(__dirname, '../../web/admin/dist');
+app.use('/admin', express.static(adminDist, {
+  maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0,
+}));
+// SPA fallback: any /admin/* route that isn't a static file gets index.html
+app.get('/admin/*path', (req, res) => {
+  res.sendFile(path.join(adminDist, 'index.html'));
+});
+
 // ── Shared Static Assets (Landing, Apply, and Admin served relative to web root)
 app.use(express.static(path.join(__dirname, '../../web'), {
   index: 'index.html',

@@ -1,5 +1,6 @@
 {
   "expo": {
+    "newArchEnabled": false,
     "name": "Doctor House Pro",
     "slug": "doctor-house-pro",
     "version": "1.0.0",
@@ -7,10 +8,24 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "pe.doctorhouse.pro"
+      "bundleIdentifier": "pe.doctorhouse.pro",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Se necesita la cámara para la videoconsulta con el paciente.",
+        "NSMicrophoneUsageDescription": "Se necesita el micrófono para la videoconsulta con el paciente.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
-      "package": "pe.doctorhouse.pro"
+      "package": "pe.doctorhouse.pro",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "plugins": [
       [

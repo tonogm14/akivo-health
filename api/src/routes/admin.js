@@ -345,6 +345,28 @@ router.post('/applications/:id/:action', adminAuth, hasPermission('apps'), async
   }
 });
 
+router.post('/doctors', adminAuth, hasPermission('doctors'), async (req, res) => {
+  const { name, specialty, cmp_license, email, phone, password, districts, experience_years, bio } = req.body;
+  if (!name || !specialty || !cmp_license || !email || !password) {
+    return res.status(400).json({ error: 'name, specialty, cmp_license, email y password son requeridos.' });
+  }
+  try {
+    const hash = await bcrypt.hash(password, 12);
+    const { rows: [doc] } = await pool.query(
+      `INSERT INTO doctors (name, specialty, cmp_license, email, phone, password_hash, districts, experience_years, bio, is_active, is_available)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,false)
+       RETURNING id, name, specialty, cmp_license, email, is_active`,
+      [name, specialty, cmp_license, email, phone || null, hash,
+       districts?.length ? districts : [], experience_years || null, bio || null]
+    );
+    await logAction(req.admin.id, 'create_doctor', 'doctor', doc.id, { name, cmp_license });
+    res.status(201).json(doc);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Email o CMP ya registrado.' });
+    res.status(500).json({ error: 'Error.' });
+  }
+});
+
 router.get('/doctors', adminAuth, hasPermission('doctors'), async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM doctors ORDER BY created_at DESC');
@@ -941,11 +963,18 @@ router.post('/live/push/user/:userId', adminAuth, async (req, res) => {
   const { title, body } = req.body;
   if (!title || !body) return res.status(400).json({ error: 'title y body requeridos.' });
   try {
-    const { rows: [user] } = await pool.query('SELECT push_token FROM users WHERE id = $1', [req.params.userId]);
-    if (!user) return res.status(404).json({ error: '404' });
-    const ok = await sendPush(user.push_token, title, body);
+    // push_token stored on users (migration 024) or fallback to latest visit push_token
+    const { rows: [row] } = await pool.query(
+      `SELECT COALESCE(u.push_token,
+         (SELECT v.push_token FROM visits v WHERE v.user_id = u.id AND v.push_token IS NOT NULL ORDER BY v.created_at DESC LIMIT 1)
+       ) AS push_token
+       FROM users u WHERE u.id = $1`,
+      [req.params.userId]
+    );
+    if (!row) return res.status(404).json({ error: '404' });
+    const ok = await sendPush(row.push_token, title, body);
     await logAction(req.admin.id, 'push_user', 'user', req.params.userId, { title, ok });
-    res.json({ message: ok ? 'Enviado' : 'Sin token push', sent: ok });
+    res.json({ message: ok ? 'Enviado' : 'Sin token push registrado', sent: ok });
   } catch (err) { res.status(500).json({ error: 'Error.' }); }
 });
 

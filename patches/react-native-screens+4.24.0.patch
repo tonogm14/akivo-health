@@ -1,0 +1,73 @@
+diff --git a/node_modules/react-native-screens/lib/commonjs/components/Screen.js b/node_modules/react-native-screens/lib/commonjs/components/Screen.js
+index aaa0001..bbb0002 100644
+--- a/node_modules/react-native-screens/lib/commonjs/components/Screen.js
++++ b/node_modules/react-native-screens/lib/commonjs/components/Screen.js
+@@ -19,8 +19,8 @@ var _warnOnce = _interopRequireDefault(require("warn-once"));
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
+ function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); } // Native components
+-const AnimatedNativeScreen = _reactNative.Animated.createAnimatedComponent(_ScreenNativeComponent.default);
+-const AnimatedNativeModalScreen = _reactNative.Animated.createAnimatedComponent(_ModalScreenNativeComponent.default);
++const AnimatedNativeScreen = _ScreenNativeComponent.default;
++const AnimatedNativeModalScreen = _ModalScreenNativeComponent.default;
+diff --git a/node_modules/react-native-screens/lib/module/components/Screen.js b/node_modules/react-native-screens/lib/module/components/Screen.js
+index ccc0003..ddd0004 100644
+--- a/node_modules/react-native-screens/lib/module/components/Screen.js
++++ b/node_modules/react-native-screens/lib/module/components/Screen.js
+@@ -15,8 +15,8 @@ import featureFlags from '../flags';
+ import warnOnce from 'warn-once';
+-const AnimatedNativeScreen = Animated.createAnimatedComponent(ScreenNativeComponent);
+-const AnimatedNativeModalScreen = Animated.createAnimatedComponent(ModalScreenNativeComponent);
++const AnimatedNativeScreen = ScreenNativeComponent;
++const AnimatedNativeModalScreen = ModalScreenNativeComponent;
+diff --git a/node_modules/react-native-screens/lib/commonjs/components/ScreenStackHeaderConfig.js b/node_modules/react-native-screens/lib/commonjs/components/ScreenStackHeaderConfig.js
+index e800f83..cbf02ee 100644
+--- a/node_modules/react-native-screens/lib/commonjs/components/ScreenStackHeaderConfig.js
++++ b/node_modules/react-native-screens/lib/commonjs/components/ScreenStackHeaderConfig.js
+@@ -69,8 +69,7 @@ const ScreenStackHeaderConfig = exports.ScreenStackHeaderConfig = /*#__PURE__*/_
+     onPressHeaderBarButtonItem: onPressHeaderBarButtonItem,
+     onPressHeaderBarButtonMenuItem: onPressHeaderBarButtonMenuItem,
+     ref: ref,
+-    style: styles.headerConfig,
+-    pointerEvents: "box-none",
++    style: [styles.headerConfig, { pointerEvents: 'box-none' }],
+     synchronousShadowStateUpdatesEnabled: _flags.default.experiment.synchronousHeaderConfigUpdatesEnabled
+   }));
+ });
+diff --git a/node_modules/react-native-screens/lib/module/components/ScreenStackHeaderConfig.js b/node_modules/react-native-screens/lib/module/components/ScreenStackHeaderConfig.js
+index 71cd007..d7976ef 100644
+--- a/node_modules/react-native-screens/lib/module/components/ScreenStackHeaderConfig.js
++++ b/node_modules/react-native-screens/lib/module/components/ScreenStackHeaderConfig.js
+@@ -65,8 +65,7 @@ export const ScreenStackHeaderConfig = /*#__PURE__*/React.forwardRef((props, ref
+     onPressHeaderBarButtonItem: onPressHeaderBarButtonItem,
+     onPressHeaderBarButtonMenuItem: onPressHeaderBarButtonMenuItem,
+     ref: ref,
+-    style: styles.headerConfig,
+-    pointerEvents: "box-none",
++    style: [styles.headerConfig, { pointerEvents: 'box-none' }],
+     synchronousShadowStateUpdatesEnabled: featureFlags.experiment.synchronousHeaderConfigUpdatesEnabled
+   }));
+ });
+diff --git a/node_modules/react-native-screens/src/components/ScreenStackHeaderConfig.tsx b/node_modules/react-native-screens/src/components/ScreenStackHeaderConfig.tsx
+index 6ca8ed7..2bb2dfb 100644
+--- a/node_modules/react-native-screens/src/components/ScreenStackHeaderConfig.tsx
++++ b/node_modules/react-native-screens/src/components/ScreenStackHeaderConfig.tsx
+@@ -118,8 +118,7 @@ export const ScreenStackHeaderConfig = React.forwardRef<
+       onPressHeaderBarButtonItem={onPressHeaderBarButtonItem}
+       onPressHeaderBarButtonMenuItem={onPressHeaderBarButtonMenuItem}
+       ref={ref}
+-      style={styles.headerConfig}
+-      pointerEvents="box-none"
++      style={[styles.headerConfig, { pointerEvents: 'box-none' }]}
+       synchronousShadowStateUpdatesEnabled={
+         featureFlags.experiment.synchronousHeaderConfigUpdatesEnabled
+       }
+diff --git a/node_modules/react-native-screens/src/fabric/ScreenStackHeaderConfigNativeComponent.ts b/node_modules/react-native-screens/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+index abc1234..def5678 100644
+--- a/node_modules/react-native-screens/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
++++ b/node_modules/react-native-screens/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+@@ -47,7 +47,7 @@ export interface NativeProps extends ViewProps {
+   backTitle?: string;
+   backTitleFontFamily?: string;
+   backTitleFontSize?: CT.Int32;
+-  backTitleVisible?: CT.WithDefault<boolean, 'true'>;
++  backTitleVisible?: CT.WithDefault<boolean, true>;

@@ -14,6 +14,8 @@ import MedicalReportScreen from './src/screens/MedicalReportScreen';
 import UploadRxScreen      from './src/screens/UploadRxScreen';
 import PaymentConfirmScreen from './src/screens/PaymentConfirmScreen';
 import PatientReviewScreen from './src/screens/PatientReviewScreen';
+// import TeleconsultScreen   from './src/screens/TeleconsultScreen'; // DAILY.CO DISABLED
+// import SupportScreen       from './src/screens/SupportScreen'; // DAILY.CO DISABLED
 import EarningsScreen      from './src/screens/EarningsScreen';
 import HistoryScreen       from './src/screens/HistoryScreen';
 import ProfileScreen       from './src/screens/ProfileScreen';
@@ -39,6 +41,8 @@ export default function App() {
             <Stack.Screen name="UploadRx"      component={UploadRxScreen} />
             <Stack.Screen name="PaymentConfirm"  component={PaymentConfirmScreen} />
             <Stack.Screen name="PatientReview"   component={PatientReviewScreen} />
+            {/* <Stack.Screen name="Teleconsult" component={TeleconsultScreen} options={{ animation: 'fade' }} /> */}
+            {/* <Stack.Screen name="Support" component={SupportScreen} /> */}
             <Stack.Screen name="Earnings"      component={EarningsScreen} />
             <Stack.Screen name="History"       component={HistoryScreen} />
             <Stack.Screen name="Profile"       component={ProfileScreen} />

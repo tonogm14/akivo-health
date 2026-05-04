@@ -40,10 +40,10 @@ const MENU_ITEMS = [
   { Icon: Icons.Wallet,   label: 'Métodos de pago' },
   { Icon: Icons.Shield,   label: 'Privacidad y seguridad' },
   { Icon: Icons.Settings, label: 'Configuración' },
-  { Icon: Icons.Chat,     label: 'Soporte Doctor House' },
+  { Icon: Icons.Chat,     label: 'Soporte Doctor House', screen: 'Support' },
 ];
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen({ navigation, route }) {
   const { state } = useApp();
   const d = state.doctor;
   const reviews = (d.recentReviews || []).slice(0, 5);
@@ -116,6 +116,7 @@ export default function ProfileScreen({ navigation }) {
               key={i}
               style={[pf.menuRow, i < arr.length - 1 && pf.menuBorder]}
               activeOpacity={0.7}
+              onPress={r.screen ? () => navigation.navigate(r.screen) : undefined}
             >
               <View style={pf.menuIcon}>
                 <r.Icon size={17} color={C.inkSoft} />

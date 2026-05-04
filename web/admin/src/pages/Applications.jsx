@@ -206,7 +206,7 @@ function AppStepContent({ data, step }) {
       ['Años de experiencia', data.experience_years],
       ['Distritos', (data.districts || []).join(', ')],
     ],
-    docs: [['Documentos', data.documents ? JSON.stringify(data.documents, null, 2) : 'Sin documentos']],
+    docs: data.documents ? Object.entries(data.documents).map(([k, v]) => [k, v]) : [['Sin documentos', null]],
     background: [['Información adicional', data.bio || 'Sin información']],
     kyc: [['Estado KYC', 'Pendiente verificación manual']],
     interview: [['Estado entrevista', 'Pendiente programar']],
@@ -214,12 +214,34 @@ function AppStepContent({ data, step }) {
   };
 
   const items = fields[step] || [];
+  const isUrl = (v) => typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
+  const DOC_LABELS = {
+    cmp_cert: 'Certificado CMP', title: 'Título profesional', dni_front: 'DNI (anverso)',
+    dni_back: 'DNI (reverso)', rne: 'Registro Nacional', cv: 'Currículum vitae',
+    photo: 'Foto de perfil', contract: 'Contrato firmado',
+  };
+
   return (
     <div>
       {items.map(([k, v]) => (
-        <div key={k} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', padding: '8px 0', borderBottom: `1px solid ${C.lineSoft}`, fontSize: 12.5 }}>
-          <div style={{ color: C.inkMuted, fontWeight: 600 }}>{k}</div>
-          <div style={{ color: C.inkSoft, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{v || '—'}</div>
+        <div key={k} style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 8, padding: '10px 0', borderBottom: `1px solid ${C.lineSoft}`, fontSize: 12.5, alignItems: 'center' }}>
+          <div style={{ color: C.inkMuted, fontWeight: 600, textTransform: 'capitalize' }}>
+            {DOC_LABELS[k] || k.replace(/_/g, ' ')}
+          </div>
+          <div>
+            {isUrl(v) ? (
+              <a href={v} target="_blank" rel="noopener noreferrer" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                background: C.primarySoft, color: C.primary, textDecoration: 'none',
+                border: `1px solid ${C.primary}40`,
+              }}>
+                <I.Doc size={12} color={C.primary}/> Ver documento ↗
+              </a>
+            ) : (
+              <span style={{ color: C.inkSoft }}>{v || '—'}</span>
+            )}
+          </div>
         </div>
       ))}
     </div>

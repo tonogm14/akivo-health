@@ -150,7 +150,7 @@ export default function MapViewComponent({
 
       {/* Pulse overlay */}
       {pulse && !hasDoctor && (
-        <View style={st.pulseWrap} pointerEvents="none">
+        <View style={[st.pulseWrap, { pointerEvents: 'none' }]}>
           <Animated.View style={[st.pulseRing, { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]} />
         </View>
       )}

@@ -66,7 +66,7 @@ function MedRow({ med, idx }) {
           <Text style={rp.metaVal}>{med.qty} ud</Text>
         </View>
       </View>
-      {med.instructions && (
+      {!!med.instructions && (
         <Text style={rp.medInstr}>↳ {med.instructions}</Text>
       )}
     </View>

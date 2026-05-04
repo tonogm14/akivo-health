@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated, Easing, Modal } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated, Easing, Modal, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { C } from '../theme';
@@ -171,7 +171,7 @@ export default function TrackingScreen({ navigation, route }) {
       )}
 
       {/* Floating top buttons */}
-      <SafeAreaView style={s.floatingTop} edges={['top']} pointerEvents="box-none">
+      <SafeAreaView style={[s.floatingTop, { pointerEvents: 'box-none' }]} edges={['top']}>
         <View style={s.floatingTopRow}>
           <TouchableOpacity style={s.floatBtn} onPress={() => navigation.navigate('Home')}>
             <Feather name="chevron-left" size={22} color={C.ink} />
@@ -259,10 +259,10 @@ export default function TrackingScreen({ navigation, route }) {
 
 
         {/* Action Button for Telemedicine */}
-        {isTele && stage === 2 && (
-          <PrimaryButton 
+        {isTele && stage >= 1 && (
+          <PrimaryButton
             style={{ marginTop: 20 }}
-            onPress={() => Alert.alert("Iniciando videollamada", "Conectando con el médico...")}
+            onPress={() => navigation.navigate('Teleconsult', { visitId })}
           >
             Iniciar videollamada
           </PrimaryButton>

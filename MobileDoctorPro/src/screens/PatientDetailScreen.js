@@ -13,7 +13,7 @@ function TopBar({ title, subtitle, onBack }) {
       </TouchableOpacity>
       <View style={{ flex: 1, alignItems: 'center' }}>
         <Text style={tb.title}>{title}</Text>
-        {subtitle && <Text style={tb.sub}>{subtitle}</Text>}
+        {!!subtitle && <Text style={tb.sub}>{subtitle}</Text>}
       </View>
       <View style={{ width: 40 }} />
     </View>
@@ -116,7 +116,7 @@ export default function PatientDetailScreen({ navigation }) {
           <Text style={s.sectionLabel}>MOTIVO DE CONSULTA</Text>
           <View style={s.card}>
             <Text style={s.complaintTitle}>{complaint}</Text>
-            {pt.notes && (
+            {!!pt.notes && (
               <Text style={s.complaintBody}>{pt.notes}</Text>
             )}
           </View>
@@ -144,13 +144,33 @@ export default function PatientDetailScreen({ navigation }) {
 
         {/* CTA */}
         <View style={s.section}>
-          <TouchableOpacity
-            style={s.startBtn}
-            onPress={() => navigation.navigate('Consultation')}
-            activeOpacity={0.85}
-          >
-            <Text style={s.startBtnTxt}>Iniciar consulta</Text>
-          </TouchableOpacity>
+          {visit.service_type === 'telemedicine' ? (
+            <>
+              <TouchableOpacity
+                style={[s.startBtn, { backgroundColor: C.blue, flexDirection: 'row', gap: 8, marginBottom: 10 }]}
+                onPress={() => navigation.navigate('Teleconsult')}
+                activeOpacity={0.85}
+              >
+                <Icons.Camera size={18} color="#fff" />
+                <Text style={s.startBtnTxt}>Unirse a videollamada</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.startBtn, { backgroundColor: C.bg, borderWidth: 1.5, borderColor: C.line }]}
+                onPress={() => navigation.navigate('Consultation')}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.startBtnTxt, { color: C.ink }]}>Consulta sin video →</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={s.startBtn}
+              onPress={() => navigation.navigate('Consultation')}
+              activeOpacity={0.85}
+            >
+              <Text style={s.startBtnTxt}>Iniciar consulta</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </View>

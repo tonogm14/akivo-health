@@ -153,7 +153,7 @@ function HomeWaiting({ online, onToggle, doctor, today }) {
 }
 
 // ── VARIANT B: Incoming request ───────────────────────────────
-function HomeIncoming({ req, onAccept, onDecline, doctor, today }) {
+function HomeIncoming({ req, onAccept, onDecline, doctor, today, isTele }) {
   const [secs, setSecs] = useState(20);
 
   useEffect(() => {
@@ -190,8 +190,10 @@ function HomeIncoming({ req, onAccept, onDecline, doctor, today }) {
           <View style={inc.inner}>
             <View style={inc.headerRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={[inc.pulseDot, { backgroundColor: C.blue }]} />
-                <Text style={[inc.headerLabel, { color: C.blueDark }]}>PEDIDO ENTRANTE</Text>
+                <View style={[inc.pulseDot, { backgroundColor: isTele ? C.green : C.blue }]} />
+                <Text style={[inc.headerLabel, { color: isTele ? C.green : C.blueDark }]}>
+                  {isTele ? 'TELECONSULTA ENTRANTE' : 'PEDIDO ENTRANTE'}
+                </Text>
               </View>
               <Text style={[inc.secsText, { color: secs <= 5 ? C.red : C.inkSoft }]}>
                 {secs}s
@@ -242,7 +244,8 @@ const STEPS = [
   { id: 'completed',       label: 'Finalizada' },
 ];
 
-function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived }) {
+function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived, onJoinCall }) {
+  const isTele     = visit.service_type === 'telemedicine';
   const currentIdx = Math.max(0, STEPS.findIndex(s => s.id === visit.status));
   const isOnWay    = visit.status === 'on_way';
 
@@ -253,7 +256,7 @@ function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived
       <View style={act.mapWrap}>
         <View style={act.mapBadge}>
           <View style={act.badgeDot} />
-          <Text style={act.badgeTxt}>VISITA ACTIVA</Text>
+          <Text style={act.badgeTxt}>{isTele ? 'TELECONSULTA ACTIVA' : 'VISITA ACTIVA'}</Text>
         </View>
       </View>
 
@@ -268,7 +271,8 @@ function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived
             <View style={{ flex: 1 }}>
               <Text style={act.patientName}>{visit.patient}</Text>
               <Text style={act.patientMeta}>
-                {visit.gender ? `${visit.gender} · ` : ''}{visit.age ? `${visit.age} años · ` : ''}{(visit.address || '').split(',')[0]}
+                {visit.gender ? `${visit.gender} · ` : ''}{visit.age ? `${visit.age} años · ` : ''}
+                {isTele ? 'Videollamada' : (visit.address || '').split(',')[0]}
               </Text>
             </View>
             <TouchableOpacity style={act.callBtn}>
@@ -276,21 +280,23 @@ function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived
             </TouchableOpacity>
           </View>
 
-          <View style={act.stepper}>
-            {STEPS.map((s, i) => {
-              const done   = i < currentIdx;
-              const active = i === currentIdx;
-              return (
-                <View key={s.id} style={[act.step, active && { backgroundColor: C.blue }]}>
-                  <Text style={[act.stepTxt, {
-                    color: active ? '#fff' : done ? C.green : C.inkMuted,
-                  }]}>
-                    {done ? '✓ ' : ''}{s.label}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
+          {!isTele && (
+            <View style={act.stepper}>
+              {STEPS.map((s, i) => {
+                const done   = i < currentIdx;
+                const active = i === currentIdx;
+                return (
+                  <View key={s.id} style={[act.step, active && { backgroundColor: C.blue }]}>
+                    <Text style={[act.stepTxt, {
+                      color: active ? '#fff' : done ? C.green : C.inkMuted,
+                    }]}>
+                      {done ? '✓ ' : ''}{s.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           <View style={act.metaRow}>
             <View style={{ flex: 1 }}>
@@ -298,8 +304,10 @@ function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived
               <Text style={act.metaVal}>{visit.startedAt}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={act.metaLabel}>DIRECCIÓN</Text>
-              <Text style={act.metaVal} numberOfLines={1}>{(visit.address || '').split(',')[0]}</Text>
+              <Text style={act.metaLabel}>{isTele ? 'MODALIDAD' : 'DIRECCIÓN'}</Text>
+              <Text style={act.metaVal} numberOfLines={1}>
+                {isTele ? 'Telemedicina' : (visit.address || '').split(',')[0]}
+              </Text>
             </View>
           </View>
 
@@ -308,13 +316,24 @@ function HomeActive({ visit, doctor, today, onViewPatient, onContinue, onArrived
               <Icons.Doc size={15} color={C.ink} />
               <Text style={act.ghostBtnTxt}>Ver paciente</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={act.ghostBtn} activeOpacity={0.8}>
-              <Icons.Nav size={15} color={C.ink} />
-              <Text style={act.ghostBtnTxt}>Navegar</Text>
-            </TouchableOpacity>
+            {!isTele && (
+              <TouchableOpacity style={act.ghostBtn} activeOpacity={0.8}>
+                <Icons.Nav size={15} color={C.ink} />
+                <Text style={act.ghostBtnTxt}>Navegar</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {isOnWay ? (
+          {isTele ? (
+            <TouchableOpacity
+              style={[act.continueBtn, { backgroundColor: C.blue, flexDirection: 'row', gap: 8 }]}
+              onPress={onJoinCall}
+              activeOpacity={0.85}
+            >
+              <Icons.Camera size={18} color="#fff" />
+              <Text style={act.continueTxt}>Unirse a videollamada</Text>
+            </TouchableOpacity>
+          ) : isOnWay ? (
             <TouchableOpacity style={[act.continueBtn, { backgroundColor: C.green }]} onPress={onArrived} activeOpacity={0.85}>
               <Text style={act.continueTxt}>Llegué al paciente ✓</Text>
             </TouchableOpacity>
@@ -447,15 +466,16 @@ export default function HomeScreen({ navigation }) {
       setState(s => ({
         ...s,
         activeVisit: {
-          id:         pendingVisit.id,
-          patient:    pt.name || 'Paciente',
-          patientData: pt,
-          status:     'on_way',
-          address:    pendingVisit.address || '—',
-          age:        pt.age || '—',
-          gender:     '',
-          symptoms:   pendingVisit.symptoms || [],
-          startedAt:  new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
+          id:           pendingVisit.id,
+          patient:      pt.name || 'Paciente',
+          patientData:  pt,
+          status:       'on_way',
+          service_type: pendingVisit.service_type || 'doctor_visit',
+          address:      pendingVisit.address || '—',
+          age:          pt.age || '—',
+          gender:       '',
+          symptoms:     pendingVisit.symptoms || [],
+          startedAt:    new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
         },
       }));
       setVariant('active');
@@ -502,6 +522,10 @@ export default function HomeScreen({ navigation }) {
     navigation.navigate('PatientDetail');
   };
 
+  const handleJoinCall = () => {
+    navigation.navigate('Teleconsult');
+  };
+
   const handleContinueToConsult = async () => {
     const visitId = state.activeVisit?.id;
     if (visitId && state.activeVisit?.status === 'arrived') {
@@ -542,13 +566,20 @@ export default function HomeScreen({ navigation }) {
                         ? `${pendingVisit.patient.age} años`
                         : (pendingVisit?.patient?.age_group || '—'),
             symptom:  (pendingVisit?.symptoms || []).filter(Boolean).join(', ') || 'Consulta general',
-            district: (pendingVisit?.address || '—').split(',')[0],
-            address:  pendingVisit?.address || '—',
-            distance: '—',
-            eta:      pendingVisit?.eta_minutes ? `~${pendingVisit.eta_minutes} min` : '—',
+            district: pendingVisit?.service_type === 'telemedicine'
+                        ? 'Video · Online'
+                        : (pendingVisit?.address || '—').split(',')[0],
+            address:  pendingVisit?.service_type === 'telemedicine'
+                        ? 'Teleconsulta por video'
+                        : (pendingVisit?.address || '—'),
+            distance: pendingVisit?.service_type === 'telemedicine' ? 'Video' : '—',
+            eta:      pendingVisit?.service_type === 'telemedicine'
+                        ? 'Inmediato'
+                        : (pendingVisit?.eta_minutes ? `~${pendingVisit.eta_minutes} min` : '—'),
             net:      74.70,
             fee:      85,
           }}
+          isTele={pendingVisit?.service_type === 'telemedicine'}
           doctor={doctor}
           today={today}
           onAccept={handleAccept}
@@ -563,6 +594,7 @@ export default function HomeScreen({ navigation }) {
           onViewPatient={handleViewPatient}
           onContinue={handleContinueToConsult}
           onArrived={handleArrived}
+          onJoinCall={handleJoinCall}
         />
       )}
       <TabBar current="Home" navigation={navigation} />

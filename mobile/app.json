@@ -1,5 +1,6 @@
 {
   "expo": {
+    "newArchEnabled": false,
     "name": "Doctor House",
     "slug": "doctorhouse",
     "version": "1.0.0",
@@ -20,6 +21,8 @@
       "bundleIdentifier": "pe.doctorhouse.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Doctor House necesita tu ubicación para asignarte el médico más cercano.",
+        "NSCameraUsageDescription": "Se necesita la cámara para la videoconsulta con el médico.",
+        "NSMicrophoneUsageDescription": "Se necesita el micrófono para la videoconsulta con el médico.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         }
@@ -36,7 +39,10 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "VIBRATE",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
       ],
       "googleServicesFile": "./google-services.json"
     },
